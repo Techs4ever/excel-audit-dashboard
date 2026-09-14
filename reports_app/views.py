@@ -193,7 +193,13 @@ def _dashboard_cache_fresh(cache_path: Path) -> bool:
         ar_gen = ar_pkg / "generator.py"
         if ar_gen.is_file():
             gen_mtime = max(gen_mtime, ar_gen.stat().st_mtime)
-        for asset_name in ("assets/dashboard.js", "assets/styles.css", "assets/body.html"):
+        for asset_name in (
+            "assets/dashboard.js",
+            "assets/styles.css",
+            "assets/body.html",
+            "schema.py",
+            "engine.py",
+        ):
             asset_path = ar_pkg / asset_name
             if asset_path.is_file():
                 gen_mtime = max(gen_mtime, asset_path.stat().st_mtime)

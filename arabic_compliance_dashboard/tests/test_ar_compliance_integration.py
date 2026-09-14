@@ -119,8 +119,25 @@ def test_ar_compliance_upload_serve_and_summary_api(admin_client, btc_company):
     assert summary_resp.status_code == 200, summary_resp.content[:300]
     payload = summary_resp.json()
     assert payload["total"] == 2
-    assert "الحالة" in payload["groups"]
-    assert any(item["key"] == "مفتوح" for item in payload["groups"]["الحالة"])
+    assert "حالة الخطة التصحيحية" in payload["groups"]
+    assert any(item["key"] == "مفتوح" for item in payload["groups"]["حالة الخطة التصحيحية"])
+
+    records_url = reverse("ar_api_records", args=[dashboard.pk])
+    records_resp = admin_client.get(records_url)
+    assert records_resp.status_code == 200, records_resp.content[:300]
+    recs = records_resp.json()
+    assert recs["total"] == 2
+    assert recs["records"][0]["department"]
+
+    export_url = reverse("ar_api_export_html", args=[dashboard.pk])
+    export_resp = admin_client.get(export_url)
+    assert export_resp.status_code == 200, export_resp.content[:300]
+    exported = export_resp.content.decode()
+    assert "attachment" in export_resp.get("Content-Disposition", "")
+    assert 'id="downloadInteractiveHtmlBtn"' in exported
+    assert '"isLive": false' in exported
+    assert "snapshot-pack" in exported
+    assert "recordListModal" in exported
 
 
 @pytest.mark.django_db

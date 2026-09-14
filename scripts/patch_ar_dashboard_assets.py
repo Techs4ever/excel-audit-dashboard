@@ -41,7 +41,7 @@ def patch_js() -> None:
         ("`/api/export-dashboard-html?", "`${arApiUrl('/export-dashboard-html')}?"),
         ("`/api/brand-logo?", "`${arApiUrl('/brand-logo')}?"),
         ('"/api/send-legal-text-email"', "arApiUrl('/send-legal-text-email')"),
-        ('"/api/export-legal-text-pptx"', "arApiUrl('/export-legal-text-pptx')"),
+        ('"/api/export-legal-text-docx"', "arApiUrl('/export-legal-text-docx')"),
         ('"/api/legal-text-details"', "arApiUrl('/legal-text-details')"),
     ]
     for old, new in replacements:

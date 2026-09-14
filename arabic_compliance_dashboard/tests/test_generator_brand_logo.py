@@ -39,3 +39,44 @@ def test_generate_report_embeds_main_header_logo():
     assert f'<img id="headerLogo" class="logo" alt="" src="{logo_uri}">' in html
     assert '"default_brand_code": "nat"' in html
     assert '"aum": "data:image/png;base64,SUBLOGO"' in html
+
+
+def test_export_snapshot_html_is_self_contained_interactive():
+    html = generate_ar_compliance_report(
+        _minimal_df(),
+        dashboard_id=9,
+        embed_snapshot=True,
+        api_base="",
+        brand_logos={"nat": "data:image/png;base64,TESTLOGO"},
+        default_brand_code="nat",
+    )
+    assert 'id="downloadInteractiveHtmlBtn"' in html
+    assert 'id="snapshot-pack"' in html
+    assert '"isLive": false' in html
+    assert "نص" in html
+    assert "legal_details" in html
+    assert "recordListModal" in html
+    assert "agingToggle" in html
+    assert "agingDownloadWordBtn" in html
+    assert "compliancePlanToggle" in html
+    assert "finalStatusToggle" in html
+    assert "assessmentNewToggle" in html
+    assert "assessmentGenerateBtn" in html
+    assert "annualTrackingWordBtn" in html
+    assert "legalModalDownloadWord" in html
+    assert "export-legal-text-docx" in html
+    assert "export-assessment-list-docx" in html
+    assert "recordListShowLegislatorCols" in html
+    assert "assessmentFormsModal" in html
+    assert "filePreviewPanel" in html
+    assert "fileStudioToggle" in html
+    assert "fileStudioModal" in html
+    assert "تنزيل Excel" in html
+    assert "initFileColumnStudio" in html
+    assert "initUploadedFilePreview" in html
+    assert "معاينة الملف المرفوع" in html
+    from arabic_compliance_dashboard.generator import export_snapshot_html
+
+    exported = export_snapshot_html(_minimal_df(), dashboard_id=9)
+    assert '"isLive": false' in exported
+    assert '"apiBase": ""' in exported

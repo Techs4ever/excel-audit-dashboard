@@ -9,7 +9,7 @@ import pandas as pd
 
 from site_robots import ROBOTS_META_HTML
 
-from .engine import build_snapshot_pack
+from .engine import BLANK, COL_LEGAL, build_snapshot_pack, legal_details_from_rows, row_value
 from .schema import normalize_dataframe, rows_from_dataframe
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
@@ -56,10 +56,19 @@ def generate_ar_compliance_report(
     """Return full HTML document for iframe serve or export."""
     normalized = normalize_dataframe(df)
     rows = rows_from_dataframe(normalized)
+    legal_details: dict[str, Any] = {}
+    for row in rows:
+        txt = row_value(row, COL_LEGAL)
+        if not txt or txt == BLANK or txt in legal_details:
+            continue
+        rec = legal_details_from_rows(rows, txt)
+        if rec:
+            legal_details[txt] = rec
     pack = build_snapshot_pack(
         rows,
         brand_logos=brand_logos or {},
         default_brand_code=default_brand_code,
+        legal_details=legal_details,
     )
 
     api_base = (api_base or f"/dashboards/{dashboard_id}/ar-api").rstrip("/")
@@ -103,8 +112,8 @@ def generate_ar_compliance_report(
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 {ROBOTS_META_HTML}    <title>نتائج التحليل</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
 {css}

@@ -6,4 +6,5 @@ pandas
 openpyxl
 fpdf2
 python-pptx
+python-docx
 Pillow>=10.0.0

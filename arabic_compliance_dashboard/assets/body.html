@@ -29,15 +29,15 @@
     <main class="container">
         <section class="top-charts">
             <div class="chart-card">
-                <h3 class="chart-title">الحالة</h3>
+                <h3 class="chart-title">حالة الخطة التصحيحية</h3>
                 <div class="chart-wrap"><canvas id="statusChart"></canvas></div>
             </div>
             <div class="chart-card">
-                <h3 class="chart-title">السنوات</h3>
-                <div class="chart-wrap"><canvas id="yearChart"></canvas></div>
+                <h3 class="chart-title">حالة الالتزام بالمتطلبات</h3>
+                <div class="chart-wrap"><canvas id="complianceStatusChart"></canvas></div>
             </div>
             <div class="chart-card">
-                <h3 class="chart-title">تصنيف المخاطر المتبقية</h3>
+                <h3 class="chart-title">مستوى المخاطر الكامنة</h3>
                 <div class="chart-wrap"><canvas id="residualChart"></canvas></div>
             </div>
             <div class="chart-card">
@@ -46,29 +46,31 @@
             </div>
         </section>
 
-        <p class="hint">اضغط لتفعيل الفلترة؛ يمكنك الجمع بين أكثر من قيمة في نفس الفئة (او). الضغط مرة ثانية يلغي ذلك الخيار.</p>
         <div class="toolbar">
             <button id="clearFiltersBtn" class="tool-btn" type="button">مسح جميع الفلاتر</button>
+            <button id="downloadInteractiveHtmlBtn" class="tool-btn tool-btn-download" type="button" title="حفظ لوحة التحكم كملف HTML تفاعلي يتضمن البيانات والفلاتر والتفاصيل">تنزيل HTML</button>
         </div>
 
+        <div class="dashboard-body">
+            <aside class="field-sidebar" aria-label="التصنيفات">
+                <h2 class="field-sidebar-title">التصنيفات</h2>
+                <p class="field-sidebar-hint">اختر تصنيفاً ثم حدّد القيم</p>
+                <div id="fieldBoxes" class="field-boxes"></div>
+                <div id="fieldOptions" class="field-options" style="display:none;"></div>
+            </aside>
+            <div class="dashboard-strips">
         <section class="filter-row compliance-status-section">
-            <h2 class="row-title">حالة الالتزام</h2>
-            <div class="compliance-row-wrap">
-                <div class="compliance-sparkline-wrap" aria-label="ملخص خطي لتوزيع حالة الالتزام">
-                    <span class="compliance-sparkline-label">حالة الالتزام</span>
-                    <canvas id="complianceStatusLineChart"></canvas>
-                </div>
-                <div id="complianceSegBar" class="row-track" dir="rtl"></div>
-            </div>
+            <h2 class="row-title">حالة الالتزام بالمتطلبات</h2>
+            <div id="complianceSegBar" class="row-track" dir="rtl"></div>
         </section>
 
         <section class="filter-row">
-            <h2 class="row-title">الحالة</h2>
-            <div id="row-status" class="row-track"></div>
+            <h2 class="row-title">حالة الخطة التصحيحية</h2>
+            <div id="row-status" class="row-track" dir="ltr"></div>
         </section>
 
         <section class="filter-row">
-            <h2 class="row-title">تصنيف المخاطر المتبقية</h2>
+            <h2 class="row-title">مستوى المخاطر الكامنة</h2>
             <div id="row-residual" class="row-track"></div>
         </section>
 
@@ -78,14 +80,26 @@
         </section>
 
         <section class="filter-row">
-            <h2 class="row-title">السنوات</h2>
+            <h2 class="row-title">تاريخ خطة الالتزام</h2>
             <div id="row-year" class="row-track"></div>
         </section>
 
         <section class="filter-row">
-            <div id="fieldBoxes" class="field-boxes"></div>
-            <div id="fieldOptions" class="field-options" style="display:none;"></div>
+            <h2 class="row-title">نتائج التقييم خلال السنة الحالية</h2>
+            <div id="row-assessment-year" class="row-track"></div>
         </section>
+
+        <section class="filter-row">
+            <h2 class="row-title">تاريخ التصحيح المستهدف</h2>
+            <div id="row-target-annual" class="row-track"></div>
+        </section>
+
+        <section class="filter-row">
+            <h2 class="row-title">تاريخ التصحيح الفعلي</h2>
+            <div id="row-actual-annual" class="row-track"></div>
+        </section>
+            </div>
+        </div>
 
         <section class="legal-text-row">
             <section class="legal-text-filter">
@@ -103,17 +117,6 @@
                     <label for="agingReferenceDate">تاريخ المرجع</label>
                     <input type="date" id="agingReferenceDate" />
                 </div>
-                <div class="control-group">
-                    <span class="control-caption">ملخص التقادم</span>
-                    <label class="inline-radio aging-source-radio">
-                        <input type="radio" name="agingDateSource" id="audit-aging-matrix-cb" value="target">
-                        تاريخ التصحيح المستهدف
-                    </label>
-                    <label class="inline-radio aging-source-radio">
-                        <input type="radio" name="agingDateSource" id="audit-aging-revised-cb" value="modified">
-                        تاريخ التصحيح المعدل
-                    </label>
-                </div>
                 <label class="inline-check">
                     <input type="checkbox" id="agingToggle">
                     التقادم
@@ -122,33 +125,131 @@
                     <input type="checkbox" id="compliancePlanToggle">
                     حالة خطة الالتزام
                 </label>
+                <label class="inline-check">
+                    <input type="checkbox" id="finalStatusToggle">
+                    تقرير تتبع حالة الالتزام السنوي
+                </label>
+                <label class="inline-check">
+                    <input type="checkbox" id="assessmentNewToggle">
+                    نتائج تقييم خلال السنة الحالية
+                </label>
+                <label class="inline-check">
+                    <input type="checkbox" id="fileStudioToggle">
+                    سجل الالتزام
+                </label>
             </div>
         </section>
         
+        <section id="filePreviewPanel" class="file-preview-panel" hidden>
+            <div class="file-preview-head">
+                <span class="file-preview-accent" aria-hidden="true"></span>
+                <h2 class="file-preview-title">معاينة الملف المرفوع</h2>
+            </div>
+            <div class="file-preview-presets" role="group" aria-label="فلاتر سريعة">
+                <span class="file-preview-presets-label">فلاتر سريعة</span>
+                <button type="button" class="file-preview-preset" data-preset="critical">مرتفع جداً</button>
+                <button type="button" class="file-preview-preset" data-preset="high">مرتفع</button>
+                <button type="button" class="file-preview-preset" data-preset="medium">متوسط</button>
+                <button type="button" class="file-preview-preset" data-preset="this_year">هذه السنة</button>
+            </div>
+            <div class="file-preview-toolbar">
+                <button type="button" id="filePreviewClearBtn" class="file-preview-clear">مسح الفلاتر</button>
+                <span id="filePreviewMeta" class="file-preview-meta"></span>
+            </div>
+            <div class="file-preview-table-wrap">
+                <table class="file-preview-table">
+                    <thead id="filePreviewHead"></thead>
+                    <tbody id="filePreviewBody"></tbody>
+                </table>
+            </div>
+            <p id="filePreviewEmpty" class="file-preview-empty" hidden>لا توجد صفوف مطابقة للفلاتر.</p>
+        </section>
     </main>
+
+    <div id="recordListModal" class="modal-overlay record-list-overlay" role="dialog" aria-modal="true" aria-labelledby="recordListTitle">
+        <div class="modal record-list-sheet">
+            <div class="report-brand-bar">
+                <img id="recordListLogo" class="report-brand-logo" alt="شعار الشركة" hidden>
+                <span class="report-brand-mark">إدارة الالتزام</span>
+            </div>
+            <div class="record-list-header">
+                <div class="record-list-heading">
+                    <p class="record-list-kicker">سجل الالتزام</p>
+                    <h3 id="recordListTitle" class="record-list-title">السجلات</h3>
+                    <p id="recordListMeta" class="record-list-meta"></p>
+                </div>
+                <div class="record-list-tools">
+                    <label class="record-list-search">
+                        <span class="visually-hidden">بحث</span>
+                        <input id="recordListSearch" type="search" placeholder="بحث في النص أو الإدارة…" autocomplete="off">
+                    </label>
+                    <button id="annualTrackingWordBtn" type="button" class="assessment-word-btn" hidden>تنزيل Word</button>
+                    <button id="assessmentGenerateBtn" type="button" class="record-generate-btn" hidden>Generate</button>
+                    <button id="recordListClose" type="button" class="record-list-close" aria-label="إغلاق">×</button>
+                </div>
+            </div>
+            <div class="record-list-body">
+                <table class="record-list-table">
+                    <thead>
+                        <tr>
+                            <th class="record-th-legislator" hidden>المشرع</th>
+                            <th class="record-th-article" hidden>رقم المادة</th>
+                            <th class="record-th-obs">النص / المتطلب</th>
+                            <th class="record-th-risk">مستوى المخاطر</th>
+                            <th class="record-th-dept">الإدارة</th>
+                            <th class="record-th-compliance" hidden>حالة الالتزام</th>
+                            <th class="record-th-final-prev" hidden>السنة السابقة</th>
+                            <th class="record-th-final-curr" hidden>السنة الحالية</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recordListBody"></tbody>
+                </table>
+                <p id="recordListEmpty" class="record-list-empty" hidden>لا توجد سجلات مطابقة.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="assessmentFormsModal" class="modal-overlay assessment-forms-overlay" role="dialog" aria-modal="true" aria-labelledby="assessmentFormsTitle" hidden>
+        <div class="modal assessment-forms-sheet">
+            <div class="report-brand-bar">
+                <img id="assessmentFormsLogo" class="report-brand-logo" alt="شعار الشركة" hidden>
+                <span class="report-brand-mark">إدارة الالتزام</span>
+            </div>
+            <div class="assessment-forms-toolbar">
+                <div class="assessment-forms-heading">
+                    <p class="assessment-forms-kicker">التقرير التفصيلي</p>
+                    <h3 id="assessmentFormsTitle" class="assessment-forms-title">نتائج تقييم خلال السنة الحالية</h3>
+                    <p id="assessmentFormsMeta" class="assessment-forms-meta"></p>
+                </div>
+                <div class="assessment-forms-actions">
+                    <button id="assessmentDownloadWordBtn" type="button" class="assessment-word-btn">تنزيل Word</button>
+                    <button id="assessmentFormsClose" type="button" class="record-list-close" aria-label="إغلاق">×</button>
+                </div>
+            </div>
+            <div id="assessmentFormsMount" class="assessment-forms-mount"></div>
+        </div>
+    </div>
 
     <div id="legalModal" class="modal-overlay" role="dialog" aria-modal="true">
         <div class="modal legal-detail-modal">
             <div class="modal-header">
                 <h3 id="legalModalTitle" class="modal-title">النص النظامي</h3>
                 <div class="modal-header-actions">
-                    <button id="legalModalDownloadPptx" type="button" class="modal-tool-btn" disabled>تنزيل PowerPoint</button>
+                    <button id="legalModalDownloadWord" type="button" class="modal-tool-btn" disabled>تنزيل Word</button>
                     <button id="legalModalClose" type="button" class="modal-close">إغلاق</button>
                 </div>
             </div>
             <div class="legal-detail-scroll">
                 <div id="legalModalBody" class="modal-body">
+                    <section id="legalModalLegislator" class="legal-legislator-hero" hidden>
+                        <span class="legal-legislator-kicker">المشرع</span>
+                        <strong id="legalModalLegislatorValue">—</strong>
+                    </section>
                     <div id="legalModalTextPanel" class="legal-modal-text-panel" hidden>
+                        <span class="legal-modal-text-kicker">النص النظامي</span>
                         <p id="legalModalFullText" class="legal-modal-full-text">—</p>
                     </div>
                     <div id="legalModalDetailMount"></div>
-                    <div id="legalModalEmailBar" class="legal-modal-email-bar">
-                        <div class="legal-modal-email-preview-wrap">
-                            <span class="legal-modal-email-hint">البريد المستهدف (عمود email اختياري — نفس صف السجل)</span>
-                            <strong id="legalModalEmailPreview" class="legal-modal-email-preview">—</strong>
-                        </div>
-                        <button id="legalModalSendEmail" type="button" class="modal-tool-btn legal-modal-send-btn">إرسال بالبريد</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -157,8 +258,11 @@
     <div id="agingModal" class="modal-overlay" role="dialog" aria-modal="true" style="z-index: 60;">
         <div class="modal modal-wide">
             <div class="modal-header" style="background:#fff; border-bottom:1px solid #e5e7eb;">
-                <h3 id="agingModalTitle" class="modal-title" style="font-size:20px;">ملخص التقادم</h3>
-                <button id="agingModalClose" type="button" class="modal-close">إغلاق</button>
+                <h3 id="agingModalTitle" class="modal-title" style="font-size:20px;color:#0f172a;">ملخص التقادم</h3>
+                <div class="modal-toolbar">
+                    <button id="agingDownloadWordBtn" type="button" class="assessment-word-btn">تنزيل Word</button>
+                    <button id="agingModalClose" type="button" class="modal-close">إغلاق</button>
+                </div>
             </div>
             <div id="agingModalBody" class="modal-body"></div>
         </div>
@@ -166,10 +270,10 @@
 
     <div id="compliancePlanModal" class="modal-overlay" role="dialog" aria-modal="true" style="z-index: 65;">
         <div class="modal modal-wide">
-            <div class="modal-header" style="background:#ecfdf5; border-bottom:1px solid #0f766e;">
+            <div class="modal-header" style="background:#1e3a5f; border-bottom:1px solid #0f2744;">
                 <h3 class="modal-title" style="font-size:20px;">حالة خطة الالتزام</h3>
                 <div class="modal-toolbar">
-                    <button id="compliancePlanSaveHtmlBtn" type="button" class="modal-close" style="background:#0f766e;color:#fff;border-color:#0f766e;">حفظ HTML</button>
+                    <button id="compliancePlanSaveHtmlBtn" type="button" class="modal-close" style="background:#2a6499;color:#fff;border-color:#2a6499;">حفظ HTML</button>
                     <button id="compliancePlanModalClose" type="button" class="modal-close">إغلاق</button>
                 </div>
             </div>
@@ -185,6 +289,49 @@
                     <button id="compliancePlanClearColorBtn" class="tool-btn" type="button">إزالة اللون</button>
                 </div>
                 <div id="compliancePlanEditor" class="aging-matrix-wrap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="fileStudioModal" class="modal-overlay file-studio-overlay" role="dialog" aria-modal="true" aria-labelledby="fileStudioTitle" style="display:none;z-index:72;">
+        <div class="modal file-studio-sheet">
+            <header class="file-studio-hero">
+                <div class="file-studio-hero-copy">
+                    <p class="file-studio-kicker">الملف المرفوع</p>
+                    <h3 id="fileStudioTitle" class="file-studio-title">سجل الالتزام</h3>
+                    <p id="fileStudioHeroMeta" class="file-studio-hero-meta"></p>
+                </div>
+                <div class="file-studio-hero-actions">
+                    <button id="fileStudioExcelBtn" type="button" class="file-studio-excel-btn">تنزيل Excel</button>
+                    <button id="fileStudioClose" type="button" class="modal-close">إغلاق</button>
+                </div>
+            </header>
+            <div class="file-studio-layout">
+                <aside class="file-studio-picker" aria-label="اختيار الأعمدة">
+                    <div class="file-studio-picker-head">
+                        <h4>الأعمدة</h4>
+                        <input id="fileStudioColSearch" type="search" placeholder="بحث عن عمود…" autocomplete="off">
+                        <div class="file-studio-picker-actions">
+                            <button id="fileStudioSelectAll" type="button">تحديد الكل</button>
+                            <button id="fileStudioSelectNone" type="button">إلغاء الكل</button>
+                        </div>
+                        <p id="fileStudioPickedMeta" class="file-studio-picked-meta"></p>
+                    </div>
+                    <div id="fileStudioColList" class="file-studio-col-list"></div>
+                </aside>
+                <section class="file-studio-review">
+                    <div class="file-studio-review-bar">
+                        <input id="fileStudioRowSearch" type="search" placeholder="بحث في الصفوف المعروضة…" autocomplete="off">
+                        <span id="fileStudioReviewMeta" class="file-studio-review-meta"></span>
+                    </div>
+                    <div class="file-studio-table-wrap">
+                        <table class="file-studio-table">
+                            <thead id="fileStudioHead"></thead>
+                            <tbody id="fileStudioBody"></tbody>
+                        </table>
+                    </div>
+                    <p id="fileStudioEmpty" class="file-studio-empty" hidden>حدّد عموداً واحداً على الأقل للمعاينة.</p>
+                </section>
             </div>
         </div>
     </div>

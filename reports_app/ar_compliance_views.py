@@ -6,6 +6,7 @@ import re
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
 from ai_excel_dashboard import _valid_obs_email, load_smtp_config, send_audit_observation_email_smtp
@@ -17,15 +18,25 @@ from arabic_compliance_dashboard.data import (
     resolve_brand_logo_company,
 )
 from arabic_compliance_dashboard.engine import (
+    ASSESSMENT_FORM_LIMIT,
+    build_assessment_forms,
     build_audit_plan_panel,
+    build_record_list,
     build_summary,
     compute_aging,
     legal_details_from_rows,
     parse_query_params,
     selected_from_params,
 )
+from arabic_compliance_dashboard.word_export import (
+    build_aging_matrix_docx,
+    build_annual_tracking_docx,
+    build_assessment_forms_docx,
+    build_assessment_list_docx,
+    build_legal_text_docx,
+    decode_logo_data_uri,
+)
 from arabic_compliance_dashboard.generator import export_snapshot_html
-from arabic_compliance_dashboard.pptx_export import build_legal_text_pptx
 from reports_app.dashboard_workflow import (
     activate_company_for_dashboard,
     has_dashboard_list_perm,
@@ -49,6 +60,29 @@ def _rows_for(dashboard):
     return load_rows_from_dashboard(dashboard)
 
 
+def _dashboard_logo_bytes(dashboard) -> bytes | None:
+    company = getattr(dashboard, "company", None)
+    if not company:
+        return None
+    logos, default_code = main_brand_logo_pack(company)
+    uri = (logos or {}).get(default_code or "") if logos else None
+    if not uri and logos:
+        uri = next(iter(logos.values()), None)
+    blob = decode_logo_data_uri(uri)
+    if blob:
+        return blob
+    from audit_app.company_access import tenant_root
+
+    root = tenant_root(company)
+    logo_field = getattr(company, "logo", None) or getattr(root, "logo", None)
+    if not logo_field:
+        return None
+    try:
+        return logo_field.open("rb").read()
+    except Exception:
+        return None
+
+
 @login_required
 @require_GET
 def ar_api_summary(request, pk: int):
@@ -58,6 +92,27 @@ def ar_api_summary(request, pk: int):
     rows = _rows_for(dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(build_summary(rows, selected))
+
+
+@login_required
+@require_GET
+def ar_api_records(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    return JsonResponse(
+        build_record_list(
+            rows,
+            selected,
+            aging_time=(request.GET.get("aging_time") or "").strip() or None,
+            aging_risk=(request.GET.get("aging_risk") or "").strip() or None,
+            reference_raw=(request.GET.get("reference") or "").strip() or None,
+            final_status_change=(request.GET.get("final_status_change") or "").strip() in {"1", "true", "yes"},
+            assessment_new=(request.GET.get("assessment_new") or "").strip() in {"1", "true", "yes"},
+        )
+    )
 
 
 @login_required
@@ -81,6 +136,40 @@ def ar_api_aging_summary(request, pk: int):
     if out.get("error"):
         return JsonResponse({"error": out["error"]}, status=400)
     return JsonResponse(out)
+
+
+@login_required
+@require_GET
+def ar_api_export_aging_docx(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    ref = (request.GET.get("reference") or "").strip()
+    if not ref:
+        return JsonResponse({"error": "Missing reference date"}, status=400)
+    date_source = (request.GET.get("aging_date_source") or "target").lower()
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    out = compute_aging(
+        rows,
+        selected,
+        ref,
+        "modified" if date_source == "modified" else "target",
+    )
+    if out.get("error"):
+        return JsonResponse({"error": out["error"]}, status=400)
+    expand = (request.GET.get("expand_over_year") or "").strip().lower() in {"1", "true", "yes"}
+    raw = build_aging_matrix_docx(
+        out,
+        expand_over_year=expand,
+        logo_bytes=_dashboard_logo_bytes(dashboard),
+    )
+    resp = HttpResponse(
+        raw,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="aging-summary.docx"'
+    return resp
 
 
 @login_required
@@ -146,9 +235,10 @@ def ar_api_send_legal_text_email(request, pk: int):
     return JsonResponse({"ok": True, "to": to_addr})
 
 
+@csrf_exempt
 @login_required
 @require_http_methods(["POST", "OPTIONS"])
-def ar_api_export_legal_text_pptx(request, pk: int):
+def ar_api_export_legal_text_docx(request, pk: int):
     if request.method == "OPTIONS":
         return JsonResponse({}, status=204)
     dashboard, err = _resolve_ar_dashboard(request, pk)
@@ -166,13 +256,91 @@ def ar_api_export_legal_text_pptx(request, pk: int):
         rows = _rows_for(dashboard)
         rec = legal_details_from_rows(rows, text)
         fields = (rec or {}).get("fields") or []
-    raw = build_legal_text_pptx(text, fields)
+    raw = build_legal_text_docx(text, fields, logo_bytes=_dashboard_logo_bytes(dashboard))
     safe = re.sub(r"[^\w\-]+", "_", text[:40]) or "legal-text"
     resp = HttpResponse(
         raw,
-        content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    resp["Content-Disposition"] = f'attachment; filename="{safe}.pptx"'
+    resp["Content-Disposition"] = f'attachment; filename="{safe}.docx"'
+    return resp
+
+
+ar_api_export_legal_text_pptx = ar_api_export_legal_text_docx
+
+
+@login_required
+@require_GET
+def ar_api_assessment_forms(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    return JsonResponse(build_assessment_forms(rows, selected))
+
+
+@login_required
+@require_GET
+def ar_api_export_assessment_forms_docx(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    forms = build_assessment_forms(rows, selected).get("forms") or []
+    raw = build_assessment_forms_docx(forms, logo_bytes=_dashboard_logo_bytes(dashboard))
+    resp = HttpResponse(
+        raw,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="assessment-current-year.docx"'
+    return resp
+
+
+@login_required
+@require_GET
+def ar_api_export_assessment_list_docx(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    records = build_record_list(
+        rows,
+        selected,
+        assessment_new=True,
+        limit=ASSESSMENT_FORM_LIMIT,
+    ).get("records") or []
+    raw = build_assessment_list_docx(records, logo_bytes=_dashboard_logo_bytes(dashboard))
+    resp = HttpResponse(
+        raw,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="assessment-current-year-list.docx"'
+    return resp
+
+
+@login_required
+@require_GET
+def ar_api_export_annual_tracking_docx(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    records = build_record_list(
+        rows,
+        selected,
+        final_status_change=True,
+        limit=ASSESSMENT_FORM_LIMIT,
+    ).get("records") or []
+    raw = build_annual_tracking_docx(records, logo_bytes=_dashboard_logo_bytes(dashboard))
+    resp = HttpResponse(
+        raw,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="annual-compliance-tracking.docx"'
     return resp
 
 

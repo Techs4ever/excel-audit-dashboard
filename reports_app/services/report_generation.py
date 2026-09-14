@@ -940,7 +940,7 @@ def _store_ar_compliance_upload(
         prepare_upload_dataframe,
         validate_ar_companies_for_tenant,
     )
-    from arabic_compliance_dashboard.schema import TEMPLATE_CODE
+    from arabic_compliance_dashboard.schema import TEMPLATE_CODE, drop_empty_rows_keep_schema_columns
     from reports_app.dashboard_workflow import mark_dashboard_draft
 
     sheet = None
@@ -974,7 +974,7 @@ def _store_ar_compliance_upload(
         if isinstance(df, dict):
             first_key = next(iter(df.keys()))
             df = df[first_key]
-        df = df.dropna(how="all").dropna(axis=1, how="all")
+        df = drop_empty_rows_keep_schema_columns(df)
         if df.empty:
             raise ValueError(tr(ui_locale, "web_err_empty"))
 
