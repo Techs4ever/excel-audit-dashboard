@@ -177,20 +177,29 @@ else
 fi
 
 # =============================================================================
-# 2) Apply database migrations
+# 2) Install / update Python dependencies
+# =============================================================================
+
+# Keeps the venv in sync after requirements.txt changes (e.g. python-docx).
+[[ -f "${PROJECT_ROOT}/requirements.txt" ]] || die "requirements.txt not found: ${PROJECT_ROOT}/requirements.txt"
+[[ -x "${PIP}" ]] || die "pip not found: ${PIP}"
+run "'${PIP}' install -r '${PROJECT_ROOT}/requirements.txt'"
+
+# =============================================================================
+# 3) Apply database migrations
 # =============================================================================
 
 run "'${PYTHON}' manage.py migrate"
 
 # =============================================================================
-# 3) Compile Arabic UI translations
+# 4) Compile Arabic UI translations
 # =============================================================================
 
 # ── Convert locale/ar/*.po to .mo — required after Arabic UI string changes ──
 run "'${PYTHON}' manage.py compilemessages -l ar"
 
 # =============================================================================
-# 4) Collect static files (Manifest hashes — cache bust for all users)
+# 5) Collect static files (Manifest hashes — cache bust for all users)
 # =============================================================================
 
 # Refuse to collectstatic unless Manifest storage is active (DEBUG must be false).
@@ -203,7 +212,7 @@ run "'${PYTHON}' manage.py collectstatic --noinput"
 run "'${PYTHON}' manage.py check_static_manifest --verify-files"
 
 # =============================================================================
-# 5) Restart services
+# 6) Restart services
 # =============================================================================
 
 if [[ "${SKIP_RESTART}" == "false" ]]; then
@@ -216,7 +225,7 @@ else
 fi
 
 # =============================================================================
-# 6) Post-deploy verification
+# 7) Post-deploy verification
 # =============================================================================
 
 if [[ "${DRY_RUN}" == "false" ]] && [[ "${SKIP_RESTART}" == "false" ]] && [[ -n "${HEALTH_URL}" ]]; then
