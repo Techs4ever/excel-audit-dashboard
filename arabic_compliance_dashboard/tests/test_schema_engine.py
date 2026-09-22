@@ -994,6 +994,94 @@ def test_aging_matrix_docx_embeds_logo():
     assert any(n.startswith("word/media/") for n in names)
 
 
+def test_plan_status_report_groups_department_schedule_and_risk():
+    from arabic_compliance_dashboard.engine import (
+        COL_DEPT,
+        COL_LEGAL,
+        COL_RESIDUAL,
+        COL_STATUS,
+        COL_TARGET,
+        PARAM_TO_COL,
+        compute_plan_status_report,
+    )
+
+    rows = [
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص أ",
+            COL_STATUS: "مفتوحة ضمن الجدول الزمني",
+            COL_RESIDUAL: "مرتفع",
+            COL_TARGET: "2026-12-01",
+        },
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص ب",
+            COL_STATUS: "مفتوحة تجاوزت الجدول الزمني",
+            COL_RESIDUAL: "متوسط",
+            COL_TARGET: "2026-01-01",
+        },
+        {
+            COL_DEPT: "إدارة تكنولوجيا المعلومات",
+            COL_LEGAL: "نص ج",
+            COL_STATUS: "مغلق",
+            COL_RESIDUAL: "منخفض",
+            COL_TARGET: "2026-01-01",
+        },
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص أ",
+            COL_STATUS: "مفتوحة ضمن الجدول الزمني",
+            COL_RESIDUAL: "مرتفع جدا",
+            COL_TARGET: "2026-11-01",
+        },
+    ]
+    selected = {col: [] for col in PARAM_TO_COL.values()}
+    out = compute_plan_status_report(rows, selected, "2026-06-01")
+    by_dept = {d["id"]: d for d in out["departments"]}
+    assert "إدارة التأمين" in by_dept
+    assert "إدارة تكنولوجيا المعلومات" not in by_dept
+    insurance = by_dept["إدارة التأمين"]
+    assert insurance["legal_text_count"] == 2
+    assert insurance["within"]["high"] == 1
+    assert insurance["within"]["very_high"] == 1
+    assert insurance["within_total"] == 2
+    assert insurance["overdue"]["medium"] == 1
+    assert insurance["overdue_total"] == 1
+
+
+def test_plan_status_docx_contains_headers():
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from arabic_compliance_dashboard.engine import (
+        COL_DEPT,
+        COL_LEGAL,
+        COL_RESIDUAL,
+        COL_STATUS,
+        PARAM_TO_COL,
+        compute_plan_status_report,
+    )
+    from arabic_compliance_dashboard.word_export import build_plan_status_docx
+
+    rows = [
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص",
+            COL_STATUS: "مفتوحة ضمن الجدول الزمني",
+            COL_RESIDUAL: "منخفض",
+        }
+    ]
+    selected = {col: [] for col in PARAM_TO_COL.values()}
+    payload = compute_plan_status_report(rows, selected, "2026-06-01")
+    xml = ZipFile(BytesIO(build_plan_status_docx(payload))).read("word/document.xml").decode("utf-8")
+    assert "حالة خطط المعالجة" in xml
+    assert "الادارة او الجهة المعنية" in xml
+    assert "عدد النصوص النظامية" in xml
+    assert "مفتوحة ضمن الجدول الزمني" in xml
+    assert "مفتوحة تجاوزت الجدول الزمني" in xml
+    assert "إدارة التأمين" in xml
+
+
 def test_legal_text_docx_contains_text_and_fields():
     from io import BytesIO
     from zipfile import ZipFile
@@ -1028,6 +1116,94 @@ def test_legal_text_docx_embeds_logo():
     raw = build_legal_text_docx("نص", [{"label": "المشرع", "value": "وزارة"}], logo_bytes=buf.getvalue())
     names = ZipFile(BytesIO(raw)).namelist()
     assert any(n.startswith("word/media/") for n in names)
+
+
+def test_plan_status_report_groups_department_schedule_and_risk():
+    from arabic_compliance_dashboard.engine import (
+        COL_DEPT,
+        COL_LEGAL,
+        COL_RESIDUAL,
+        COL_STATUS,
+        COL_TARGET,
+        PARAM_TO_COL,
+        compute_plan_status_report,
+    )
+
+    rows = [
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص أ",
+            COL_STATUS: "مفتوحة ضمن الجدول الزمني",
+            COL_RESIDUAL: "مرتفع",
+            COL_TARGET: "2026-12-01",
+        },
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص ب",
+            COL_STATUS: "مفتوحة تجاوزت الجدول الزمني",
+            COL_RESIDUAL: "متوسط",
+            COL_TARGET: "2026-01-01",
+        },
+        {
+            COL_DEPT: "إدارة تكنولوجيا المعلومات",
+            COL_LEGAL: "نص ج",
+            COL_STATUS: "مغلق",
+            COL_RESIDUAL: "منخفض",
+            COL_TARGET: "2026-01-01",
+        },
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص أ",
+            COL_STATUS: "مفتوحة ضمن الجدول الزمني",
+            COL_RESIDUAL: "مرتفع جدا",
+            COL_TARGET: "2026-11-01",
+        },
+    ]
+    selected = {col: [] for col in PARAM_TO_COL.values()}
+    out = compute_plan_status_report(rows, selected, "2026-06-01")
+    by_dept = {d["id"]: d for d in out["departments"]}
+    assert "إدارة التأمين" in by_dept
+    assert "إدارة تكنولوجيا المعلومات" not in by_dept
+    insurance = by_dept["إدارة التأمين"]
+    assert insurance["legal_text_count"] == 2
+    assert insurance["within"]["high"] == 1
+    assert insurance["within"]["very_high"] == 1
+    assert insurance["within_total"] == 2
+    assert insurance["overdue"]["medium"] == 1
+    assert insurance["overdue_total"] == 1
+
+
+def test_plan_status_docx_contains_headers():
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from arabic_compliance_dashboard.engine import (
+        COL_DEPT,
+        COL_LEGAL,
+        COL_RESIDUAL,
+        COL_STATUS,
+        PARAM_TO_COL,
+        compute_plan_status_report,
+    )
+    from arabic_compliance_dashboard.word_export import build_plan_status_docx
+
+    rows = [
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص",
+            COL_STATUS: "مفتوحة ضمن الجدول الزمني",
+            COL_RESIDUAL: "منخفض",
+        }
+    ]
+    selected = {col: [] for col in PARAM_TO_COL.values()}
+    payload = compute_plan_status_report(rows, selected, "2026-06-01")
+    xml = ZipFile(BytesIO(build_plan_status_docx(payload))).read("word/document.xml").decode("utf-8")
+    assert "حالة خطط المعالجة" in xml
+    assert "الادارة او الجهة المعنية" in xml
+    assert "عدد النصوص النظامية" in xml
+    assert "مفتوحة ضمن الجدول الزمني" in xml
+    assert "مفتوحة تجاوزت الجدول الزمني" in xml
+    assert "إدارة التأمين" in xml
 
 
 def test_excel_serial_target_date_becomes_calendar_date():

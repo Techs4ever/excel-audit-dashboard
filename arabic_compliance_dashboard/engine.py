@@ -229,6 +229,12 @@ def record_list_quarter(row: dict[str, str], selected: dict[str, list[str]]) -> 
         CANONICAL_NAMES.get("actual_date", "تاريخ التصحيح الفعلي"),
         CANONICAL_NAMES["modified_date"],
     ]
+    if actual_active and not target_active:
+        date_cols = [
+            CANONICAL_NAMES.get("actual_date", "تاريخ التصحيح الفعلي"),
+            CANONICAL_NAMES["modified_date"],
+            CANONICAL_NAMES["target_date"],
+        ]
     for col in date_cols:
         q = quarter_token(quarter_from_date_cell(row_value(row, col)))
         if q:
@@ -376,6 +382,9 @@ def build_record_list(
     reference_raw: str | None = None,
     final_status_change: bool = False,
     assessment_new: bool = False,
+    plan_dept: str | None = None,
+    plan_bucket: str | None = None,
+    plan_risk: str | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Filtered register rows for the second-click drill-down sheet."""
@@ -387,6 +396,16 @@ def build_record_list(
         else:
             time_id = aging_time or "all"
             filtered = [r for r in filtered if aging_row_matches(r, ref, time_id, aging_risk)]
+    if plan_dept is not None or plan_bucket or plan_risk:
+        ref = parse_date_at_noon(reference_raw or "") if reference_raw else None
+        dept_id = None
+        if plan_dept is not None:
+            dept_id = "" if plan_dept in {"", "__none__", "(blank)"} else plan_dept
+        filtered = [
+            r
+            for r in filtered
+            if plan_row_matches(r, ref, dept_id, plan_bucket, plan_risk)
+        ]
     if final_status_change:
         filtered = [r for r in filtered if final_compliance_regressed(r)]
     if assessment_new:
@@ -550,6 +569,167 @@ def is_past_correction_status(status_text: str) -> bool:
 
 def is_open_status_for_aging(status_text: str) -> bool:
     return is_within_correction_status(status_text) or is_past_correction_status(status_text)
+
+
+PLAN_STATUS_RISK_COLUMNS: list[dict[str, str]] = [
+    {"id": "low", "label": "منخفض", "color": "#3d7a5a", "text_color": "#ffffff"},
+    {"id": "medium", "label": "متوسط", "color": "#c9a227", "text_color": "#1e293b"},
+    {"id": "high", "label": "مرتفع", "color": "#c24141", "text_color": "#ffffff"},
+    {"id": "very_high", "label": "مرتفع جدا", "color": "#8f1d2c", "text_color": "#ffffff"},
+]
+
+PLAN_STATUS_TITLE = "حالة خطط المعالجة والإجراءات التصحيحية المتفق عليها مع الإدارة"
+
+
+def _status_compact(status_text: str) -> str:
+    t = norm_nfkc(status_text).replace("\u00a0", " ")
+    return re.sub(r"\s+", " ", t)
+
+
+def plan_schedule_bucket(row: dict[str, str], ref: date | None) -> str | None:
+    """within | overdue | None for closed/unknown rows."""
+    st = row_value(row, COL_STATUS)
+    if is_closed_status_for_aging(st):
+        return None
+    t = _status_compact(st)
+    if "تجاوز" in t:
+        return "overdue"
+    if "ضمن" in t:
+        return "within"
+    if "مفتوح" not in t:
+        return None
+    if ref:
+        cdt = aging_target_date(row)
+        if cdt:
+            return "within" if cdt >= ref else "overdue"
+    return "within"
+
+
+def plan_risk_bucket(row: dict[str, str]) -> str:
+    key = aging_risk_key(aging_row_risk_text(row)) or "other"
+    if key == "very_low":
+        return "low"
+    return key
+
+
+def plan_dept_id(row: dict[str, str]) -> str:
+    dept = row_value(row, COL_DEPT)
+    return "" if dept == BLANK else dept
+
+
+def plan_legal_identity(row: dict[str, str], index: int) -> tuple[str, str]:
+    legal = row_value(row, COL_LEGAL)
+    if legal != BLANK:
+        return ("legal", legal)
+    system = row_value(row, COL_SYSTEM)
+    if system != BLANK:
+        return ("system", system)
+    return ("row", str(index))
+
+
+def plan_row_matches(
+    row: dict[str, str],
+    ref: date | None,
+    dept_id: str | None,
+    bucket: str | None,
+    risk_id: str | None,
+) -> bool:
+    classified = plan_schedule_bucket(row, ref)
+    if not classified:
+        return False
+    want_dept = None if dept_id is None else str(dept_id)
+    if want_dept is not None and plan_dept_id(row) != want_dept:
+        return False
+    want_bucket = str(bucket or "").strip()
+    if want_bucket and want_bucket not in {"all", "*"} and classified != want_bucket:
+        return False
+    want_risk = str(risk_id or "").strip()
+    if want_risk and want_risk not in {"all", "*"}:
+        rkey = plan_risk_bucket(row)
+        if rkey != want_risk:
+            return False
+    return True
+
+
+def compute_plan_status_report(
+    rows: list[dict[str, str]],
+    selected: dict[str, list[str]],
+    reference_raw: str = "",
+) -> dict[str, Any]:
+    ref = parse_date_at_noon(reference_raw) if reference_raw else None
+    risk_cols = PLAN_STATUS_RISK_COLUMNS
+    risk_keys = [x["id"] for x in risk_cols]
+    grouped: dict[str, dict[str, Any]] = {}
+    skipped_closed = 0
+    skipped_other = 0
+    for index, row in enumerate(apply_filters(rows, selected, None)):
+        bucket = plan_schedule_bucket(row, ref)
+        if not bucket:
+            st = row_value(row, COL_STATUS)
+            if is_closed_status_for_aging(st):
+                skipped_closed += 1
+            else:
+                skipped_other += 1
+            continue
+        dept = plan_dept_id(row)
+        slot = grouped.get(dept)
+        if not slot:
+            slot = {
+                "id": dept,
+                "label": dept or "غير محدد",
+                "legal_ids": set(),
+                "within": {k: 0 for k in risk_keys},
+                "overdue": {k: 0 for k in risk_keys},
+                "within_total": 0,
+                "overdue_total": 0,
+            }
+            grouped[dept] = slot
+        slot["legal_ids"].add(plan_legal_identity(row, index))
+        rkey = plan_risk_bucket(row)
+        if rkey in risk_keys:
+            slot[bucket][rkey] += 1
+        slot[f"{bucket}_total"] += 1
+
+    departments = []
+    for dept in sorted(grouped.keys(), key=lambda x: (x == "", x)):
+        slot = grouped[dept]
+        departments.append(
+            {
+                "id": slot["id"],
+                "label": slot["label"],
+                "legal_text_count": len(slot["legal_ids"]),
+                "within": slot["within"],
+                "overdue": slot["overdue"],
+                "within_total": slot["within_total"],
+                "overdue_total": slot["overdue_total"],
+            }
+        )
+
+    totals = {
+        "legal_text_count": sum(d["legal_text_count"] for d in departments),
+        "within": {k: 0 for k in risk_keys},
+        "overdue": {k: 0 for k in risk_keys},
+        "within_total": 0,
+        "overdue_total": 0,
+    }
+    for dept_row in departments:
+        for k in risk_keys:
+            totals["within"][k] += dept_row["within"].get(k, 0)
+            totals["overdue"][k] += dept_row["overdue"].get(k, 0)
+        totals["within_total"] += dept_row["within_total"]
+        totals["overdue_total"] += dept_row["overdue_total"]
+
+    return {
+        "title": PLAN_STATUS_TITLE,
+        "reference": (reference_raw or "")[:10],
+        "risk_columns": risk_cols,
+        "departments": departments,
+        "totals": totals,
+        "department_count": len(departments),
+        "open_total": totals["within_total"] + totals["overdue_total"],
+        "skipped_closed": skipped_closed,
+        "skipped_other": skipped_other,
+    }
 
 
 def aging_row_risk_text(row: dict[str, str]) -> str:
@@ -816,6 +996,10 @@ def build_snapshot_pack(
     return {
         "rows": rows,
         "aging_config": AGING_CONFIG,
+        "plan_status_config": {
+            "title": PLAN_STATUS_TITLE,
+            "risk_columns": PLAN_STATUS_RISK_COLUMNS,
+        },
         "audit_columns": AUDIT_COLUMNS,
         "brand_logos": brand_logos or {},
         "default_brand_code": default_brand_code,

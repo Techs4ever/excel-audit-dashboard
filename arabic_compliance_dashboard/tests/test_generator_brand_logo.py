@@ -70,6 +70,10 @@ def test_export_snapshot_html_is_self_contained_interactive():
     assert "assessmentFormsModal" in html
     assert "filePreviewPanel" in html
     assert "fileStudioToggle" in html
+    assert "planStatusToggle" in html
+    assert "planStatusWordBtn" in html
+    assert "حالة خطط المعالجة" in html
+    assert "export-plan-status-docx" in html
     assert "fileStudioModal" in html
     assert "تنزيل Excel" in html
     assert "initFileColumnStudio" in html

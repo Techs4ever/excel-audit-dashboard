@@ -528,6 +528,134 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                     skipped_unknown_time: unknownTime
                 };
             };
+            const PLAN_STATUS_RISK_COLUMNS = (pack.plan_status_config && pack.plan_status_config.risk_columns) || [
+                { id: "low", label: "منخفض", color: "#3d7a5a", text_color: "#ffffff" },
+                { id: "medium", label: "متوسط", color: "#c9a227", text_color: "#1e293b" },
+                { id: "high", label: "مرتفع", color: "#c24141", text_color: "#ffffff" },
+                { id: "very_high", label: "مرتفع جدا", color: "#8f1d2c", text_color: "#ffffff" }
+            ];
+            const PLAN_STATUS_TITLE = (pack.plan_status_config && pack.plan_status_config.title) ||
+                "حالة خطط المعالجة والإجراءات التصحيحية المتفق عليها مع الإدارة";
+            const planScheduleBucket = (row, ref) => {
+                const st = rowValue(row, COL_STATUS);
+                if (isClosedStatusForAging(st)) return null;
+                const t = normNFKC(st).replace(/\s+/g, " ");
+                if (t.includes("تجاوز")) return "overdue";
+                if (t.includes("ضمن")) return "within";
+                if (!t.includes("مفتوح")) return null;
+                if (ref) {
+                    const cdt = agingTargetDate(row);
+                    if (cdt) {
+                        const cref = new Date(cdt.getFullYear(), cdt.getMonth(), cdt.getDate());
+                        const rref = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+                        return cref >= rref ? "within" : "overdue";
+                    }
+                }
+                return "within";
+            };
+            const planRiskBucket = (row) => {
+                const key = agingRiskKey(agingRowRiskText(row)) || "other";
+                return key === "very_low" ? "low" : key;
+            };
+            const planDeptId = (row) => {
+                const dept = rowValue(row, "الإدارة المسؤولة");
+                return !dept || dept === BLANK ? "" : dept;
+            };
+            const planLegalIdentity = (row, index) => {
+                const legal = rowValue(row, "النص النظامي");
+                if (legal && legal !== BLANK) return `legal:${legal}`;
+                const system = rowValue(row, "اسم النظام");
+                if (system && system !== BLANK) return `system:${system}`;
+                return `row:${index}`;
+            };
+            const planRowMatches = (row, ref, deptId, bucket, riskId) => {
+                const classified = planScheduleBucket(row, ref);
+                if (!classified) return false;
+                if (deptId !== null && deptId !== undefined && planDeptId(row) !== deptId) return false;
+                const wantBucket = String(bucket || "").trim();
+                if (wantBucket && wantBucket !== "all" && wantBucket !== "*" && classified !== wantBucket) return false;
+                const wantRisk = String(riskId || "").trim();
+                if (wantRisk && wantRisk !== "all" && wantRisk !== "*" && planRiskBucket(row) !== wantRisk) return false;
+                return true;
+            };
+            const computePlanStatusReport = (rows, selected, referenceRaw) => {
+                const ref = parseDateAtNoon(referenceRaw);
+                const riskCols = PLAN_STATUS_RISK_COLUMNS;
+                const riskKeys = riskCols.map((x) => x.id);
+                const grouped = {};
+                let skippedClosed = 0;
+                let skippedOther = 0;
+                applyFilters(rows, selected, null).forEach((row, index) => {
+                    const bucket = planScheduleBucket(row, ref);
+                    if (!bucket) {
+                        const st = rowValue(row, COL_STATUS);
+                        if (isClosedStatusForAging(st)) skippedClosed += 1;
+                        else skippedOther += 1;
+                        return;
+                    }
+                    const dept = planDeptId(row);
+                    if (!grouped[dept]) {
+                        grouped[dept] = {
+                            id: dept,
+                            label: dept || "غير محدد",
+                            legalIds: new Set(),
+                            within: Object.fromEntries(riskKeys.map((k) => [k, 0])),
+                            overdue: Object.fromEntries(riskKeys.map((k) => [k, 0])),
+                            within_total: 0,
+                            overdue_total: 0
+                        };
+                    }
+                    const slot = grouped[dept];
+                    slot.legalIds.add(planLegalIdentity(row, index));
+                    const rkey = planRiskBucket(row);
+                    if (riskKeys.includes(rkey)) slot[bucket][rkey] += 1;
+                    slot[`${bucket}_total`] += 1;
+                });
+                const departments = Object.keys(grouped)
+                    .sort((a, b) => {
+                        if (!a && b) return 1;
+                        if (a && !b) return -1;
+                        return String(a).localeCompare(String(b), "ar");
+                    })
+                    .map((dept) => {
+                        const slot = grouped[dept];
+                        return {
+                            id: slot.id,
+                            label: slot.label,
+                            legal_text_count: slot.legalIds.size,
+                            within: slot.within,
+                            overdue: slot.overdue,
+                            within_total: slot.within_total,
+                            overdue_total: slot.overdue_total
+                        };
+                    });
+                const totals = {
+                    legal_text_count: departments.reduce((s, d) => s + d.legal_text_count, 0),
+                    within: Object.fromEntries(riskKeys.map((k) => [k, 0])),
+                    overdue: Object.fromEntries(riskKeys.map((k) => [k, 0])),
+                    within_total: 0,
+                    overdue_total: 0
+                };
+                departments.forEach((d) => {
+                    riskKeys.forEach((k) => {
+                        totals.within[k] += d.within[k] || 0;
+                        totals.overdue[k] += d.overdue[k] || 0;
+                    });
+                    totals.within_total += d.within_total;
+                    totals.overdue_total += d.overdue_total;
+                });
+                return {
+                    title: PLAN_STATUS_TITLE,
+                    reference: String(referenceRaw || "").slice(0, 10),
+                    risk_columns: riskCols,
+                    departments,
+                    totals,
+                    department_count: departments.length,
+                    open_total: totals.within_total + totals.overdue_total,
+                    skipped_closed: skippedClosed,
+                    skipped_other: skippedOther
+                };
+            };
             const parseFetch = (url) => {
                 if (url.includes("://")) {
                     const u = new URL(url);
@@ -583,6 +711,17 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                         filtered = agingRef
                             ? filtered.filter((row) => agingRowMatches(row, agingRef, agingTime || "all", agingRisk))
                             : [];
+                    }
+                    const planBucket = (sp.get("plan_bucket") || "").trim();
+                    const planRisk = (sp.get("plan_risk") || "").trim();
+                    if (sp.has("plan_dept") || planBucket || planRisk) {
+                        const planRef = parseDateAtNoon((sp.get("reference") || "").trim());
+                        let deptId = null;
+                        if (sp.has("plan_dept")) {
+                            const rawDept = String(sp.get("plan_dept") || "").trim();
+                            deptId = !rawDept || rawDept === "__none__" || rawDept === "(blank)" ? "" : rawDept;
+                        }
+                        filtered = filtered.filter((row) => planRowMatches(row, planRef, deptId, planBucket, planRisk));
                     }
                     const finalChange = ["1", "true", "yes"].includes(String(sp.get("final_status_change") || "").trim().toLowerCase());
                     const assessmentNew = ["1", "true", "yes"].includes(String(sp.get("assessment_new") || "").trim().toLowerCase());
@@ -709,7 +848,10 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                             if (m) { quarter = "Q" + m[1]; break; }
                         }
                         if (!quarter) {
-                            for (const col of [COL_TARGET, "تاريخ التصحيح الفعلي", COL_MODIFIED]) {
+                            const dateCols = actualActive && !targetActive
+                                ? ["تاريخ التصحيح الفعلي", COL_MODIFIED, COL_TARGET]
+                                : [COL_TARGET, "تاريخ التصحيح الفعلي", COL_MODIFIED];
+                            for (const col of dateCols) {
                                 const raw = rowValue(row, col);
                                 const m = String(raw || "").match(/Q\s*([1-4])/i);
                                 if (m) { quarter = "Q" + m[1]; break; }
@@ -803,6 +945,10 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                     const out = computeAging(rows, selectedFromParams(sp), ref, dateSource === "modified" ? "modified" : "target");
                     if (out.error) return jsonResponse({ error: out.error }, 400);
                     return jsonResponse(out);
+                }
+                if (path.includes("/api/plan-status-summary") || path.includes("/ar-api/plan-status-summary")) {
+                    const ref = (sp.get("reference") || "").trim();
+                    return jsonResponse(computePlanStatusReport(rows, selectedFromParams(sp), ref));
                 }
                 return origFetch(input, init);
             };
@@ -1108,6 +1254,7 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             recordListShowFinalChange = false;
             recordListShowAssessmentNew = false;
             recordListShowYearCompliance = false;
+            recordListSkipQuarters = false;
             syncRecordListHead();
             const finalToggle = document.getElementById("finalStatusToggle");
             if (finalToggle) {
@@ -1657,8 +1804,11 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 return;
             }
             lastTileDrillKey = drillKey;
-            openRecordList(displayLabel || value, {
-                skip_quarters: stateKey === "compliance_status" || stateKey === "year",
+            const label = displayLabel || value;
+            const isQuarterLabel = /^Q[1-4]$/i.test(String(label || "").trim());
+            const showQuarters = stateKey === "actual_annual" || stateKey === "target_annual";
+            openRecordList(showQuarters ? label : (isQuarterLabel ? "السجلات" : label), {
+                skip_quarters: !showQuarters,
                 year_compliance: stateKey === "year"
             });
         }
@@ -2867,6 +3017,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             if (document.getElementById("agingToggle")?.checked && isAgingModalOpen()) {
                 await refreshAgingSummary();
             }
+            if (document.getElementById("planStatusToggle")?.checked && isPlanStatusOpen()) {
+                await refreshPlanStatusReport();
+            }
             // no-op: compliance plan editor is local (no server refresh required)
         }
 
@@ -3184,6 +3337,10 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 closeAgingModal();
                 return;
             }
+            if (isPlanStatusOpen()) {
+                closePlanStatusModal();
+                return;
+            }
             if (isFileStudioOpen()) {
                 closeFileStudio();
             }
@@ -3498,7 +3655,308 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             if (toggle && toggle.checked && isAgingModalOpen()) {
                 await refreshAgingSummary();
             }
+            if (document.getElementById("planStatusToggle")?.checked && isPlanStatusOpen()) {
+                await refreshPlanStatusReport();
+            }
             refreshLegalModalAgingDays();
+        });
+
+        const planStatusModal = document.getElementById("planStatusModal");
+        const planStatusBody = document.getElementById("planStatusBody");
+        let lastPlanStatusPayload = null;
+        let planStatusQuery = "";
+
+        function isPlanStatusOpen() {
+            return !!(planStatusModal && planStatusModal.style.display === "flex");
+        }
+
+        function closePlanStatusModal() {
+            if (planStatusModal) {
+                planStatusModal.style.display = "none";
+            }
+            const toggle = document.getElementById("planStatusToggle");
+            if (toggle) {
+                toggle.checked = false;
+            }
+            const search = document.getElementById("planStatusSearch");
+            if (search) {
+                search.value = "";
+            }
+            planStatusQuery = "";
+        }
+
+        function planStatusCountText(value) {
+            const n = Number(value || 0);
+            return n ? toEnglishNumber(n) : "";
+        }
+
+        function planStatusDeptParam(deptId) {
+            return deptId ? String(deptId) : "__none__";
+        }
+
+        function openPlanStatusRecords(deptId, bucket, riskId, title) {
+            const refInput = document.getElementById("agingReferenceDate");
+            const extra = {
+                skip_quarters: true,
+                plan_dept: planStatusDeptParam(deptId),
+                reference: refInput && refInput.value ? refInput.value : ""
+            };
+            if (bucket) {
+                extra.plan_bucket = bucket;
+            }
+            if (riskId) {
+                extra.plan_risk = riskId;
+            }
+            openRecordList(title || "سجلات خطط المعالجة", extra);
+        }
+
+        function planCountCell(value, deptId, bucket, riskId, title) {
+            const n = Number(value || 0);
+            if (!n) {
+                return `<td></td>`;
+            }
+            return `<td class="plan-status-count" data-plan-dept="${escapeHtml(planStatusDeptParam(deptId))}" data-plan-bucket="${escapeHtml(bucket || "")}" data-plan-risk="${escapeHtml(riskId || "")}" data-plan-title="${escapeHtml(title || "")}" title="عرض السجلات">${planStatusCountText(n)}</td>`;
+        }
+
+        function renderPlanStatusTable(data, query) {
+            const riskCols = data.risk_columns || [];
+            const q = String(query || "").trim().toLowerCase();
+            const departments = (data.departments || []).filter((d) => {
+                if (!q) {
+                    return true;
+                }
+                return String(d.label || "").toLowerCase().includes(q);
+            });
+            const totals = data.totals || {};
+            const withinHeads = riskCols.map((rc) => {
+                const bg = rc.color || "#7b8794";
+                const fg = rc.text_color || "#ffffff";
+                return `<th class="plan-risk-head" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)};">${escapeHtml(rc.label || "")}</th>`;
+            }).join("");
+            const groupSpan = riskCols.length + 1;
+            let body = "";
+            departments.forEach((dept) => {
+                const deptId = dept.id || "";
+                const withinCells = riskCols.map((rc) =>
+                    planCountCell(dept.within && dept.within[rc.id], deptId, "within", rc.id, `${dept.label} · ضمن الجدول · ${rc.label}`)
+                ).join("");
+                const overdueCells = riskCols.map((rc) =>
+                    planCountCell(dept.overdue && dept.overdue[rc.id], deptId, "overdue", rc.id, `${dept.label} · تجاوز الجدول · ${rc.label}`)
+                ).join("");
+                body += `<tr>
+                    <th class="plan-dept-cell" data-plan-dept="${escapeHtml(planStatusDeptParam(deptId))}" data-plan-title="${escapeHtml(dept.label || "")}">${escapeHtml(dept.label || "—")}</th>
+                    ${planCountCell(dept.legal_text_count, deptId, "all", "", `${dept.label} · النصوص النظامية`)}
+                    ${withinCells}
+                    ${planCountCell(dept.within_total, deptId, "within", "", `${dept.label} · ضمن الجدول`)}
+                    ${overdueCells}
+                    ${planCountCell(dept.overdue_total, deptId, "overdue", "", `${dept.label} · تجاوز الجدول`)}
+                </tr>`;
+            });
+            if (!body) {
+                body = `<tr><td class="plan-status-empty" colspan="${2 + groupSpan * 2}">لا توجد خطط مفتوحة مطابقة.</td></tr>`;
+            }
+            const withinFoot = riskCols.map((rc) => `<td>${planStatusCountText(totals.within && totals.within[rc.id])}</td>`).join("");
+            const overdueFoot = riskCols.map((rc) => `<td>${planStatusCountText(totals.overdue && totals.overdue[rc.id])}</td>`).join("");
+            return `<div class="plan-status-table-wrap">
+                <table class="plan-status-table" dir="rtl">
+                    <thead>
+                        <tr>
+                            <th class="plan-corner" rowspan="2">الادارة او الجهة المعنية</th>
+                            <th class="plan-corner" rowspan="2">عدد النصوص النظامية</th>
+                            <th class="plan-group plan-group-within" colspan="${groupSpan}">مفتوحة ضمن الجدول الزمني</th>
+                            <th class="plan-group plan-group-overdue" colspan="${groupSpan}">مفتوحة تجاوزت الجدول الزمني</th>
+                        </tr>
+                        <tr>
+                            ${withinHeads}
+                            <th class="plan-total-head">الاجمالي</th>
+                            ${withinHeads}
+                            <th class="plan-total-head">الاجمالي</th>
+                        </tr>
+                    </thead>
+                    <tbody>${body}</tbody>
+                    <tfoot>
+                        <tr>
+                            <th>الاجمالي</th>
+                            <td>${planStatusCountText(totals.legal_text_count)}</td>
+                            ${withinFoot}
+                            <td class="plan-total-foot">${planStatusCountText(totals.within_total)}</td>
+                            ${overdueFoot}
+                            <td class="plan-total-foot">${planStatusCountText(totals.overdue_total)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>`;
+        }
+
+        function paintPlanStatusModal(data) {
+            lastPlanStatusPayload = data;
+            const titleEl = document.getElementById("planStatusTitle");
+            const metaEl = document.getElementById("planStatusMeta");
+            const kpis = document.getElementById("planStatusKpis");
+            if (titleEl) {
+                titleEl.textContent = data.title || "حالة خطط المعالجة والإجراءات التصحيحية المتفق عليها مع الإدارة";
+            }
+            if (metaEl) {
+                const ref = data.reference ? `حتى ${data.reference}` : "";
+                metaEl.textContent = ref ? `تاريخ المرجع ${ref}` : "";
+            }
+            if (kpis) {
+                kpis.hidden = false;
+                kpis.innerHTML = `
+                    <article class="plan-kpi"><span>الإدارات</span><strong>${toEnglishNumber(data.department_count || 0)}</strong></article>
+                    <article class="plan-kpi plan-kpi-ok"><span>ضمن الجدول</span><strong>${toEnglishNumber((data.totals && data.totals.within_total) || 0)}</strong></article>
+                    <article class="plan-kpi plan-kpi-due"><span>تجاوزت الجدول</span><strong>${toEnglishNumber((data.totals && data.totals.overdue_total) || 0)}</strong></article>
+                    <article class="plan-kpi"><span>النصوص النظامية</span><strong>${toEnglishNumber((data.totals && data.totals.legal_text_count) || 0)}</strong></article>`;
+            }
+            if (planStatusBody) {
+                planStatusBody.innerHTML = renderPlanStatusTable(data, planStatusQuery);
+                planStatusBody.querySelectorAll(".plan-status-count, .plan-dept-cell").forEach((el) => {
+                    el.addEventListener("click", () => {
+                        const dept = el.dataset.planDept === "__none__" ? "" : (el.dataset.planDept || "");
+                        openPlanStatusRecords(
+                            dept,
+                            el.dataset.planBucket || "all",
+                            el.dataset.planRisk || "",
+                            el.dataset.planTitle || ""
+                        );
+                    });
+                });
+            }
+        }
+
+        async function refreshPlanStatusReport() {
+            if (!planStatusBody) {
+                return;
+            }
+            planStatusBody.innerHTML = `<div class="empty-hint">جاري التحميل...</div>`;
+            const qs = buildFilterQueryString(state);
+            const refInput = document.getElementById("agingReferenceDate");
+            if (refInput && refInput.value) {
+                qs.set("reference", refInput.value);
+            }
+            try {
+                const response = await fetch(`${arApiUrl("/plan-status-summary")}?${qs.toString()}`, {
+                    credentials: "same-origin"
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    planStatusBody.innerHTML = `<div class="empty-hint">تعذر حساب التقرير.</div>`;
+                    return;
+                }
+                paintPlanStatusModal(data);
+            } catch (_err) {
+                planStatusBody.innerHTML = `<div class="empty-hint">تعذر حساب التقرير.</div>`;
+            }
+        }
+
+        function downloadPlanStatusWordHtml(data) {
+            if (!data) {
+                return;
+            }
+            const logoSrc = currentBrandLogoSrc();
+            const logoHtml = logoSrc
+                ? `<img src="${escapeHtml(logoSrc)}" alt="" style="height:52px;max-width:180px;object-fit:contain;">`
+                : "";
+            const title = data.title || "حالة خطط المعالجة والإجراءات التصحيحية المتفق عليها مع الإدارة";
+            const wrap = document.createElement("div");
+            wrap.innerHTML = renderPlanStatusTable(data, "");
+            const table = wrap.querySelector("table");
+            const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(title)}</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; direction: rtl; color: #1e293b; }
+  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1F4E79; padding-bottom: 10px; margin-bottom: 14px; }
+  .kicker { color: #1F4E79; font-weight: 800; margin: 0; font-size: 12pt; }
+  h1 { color: #1F4E79; font-size: 16pt; margin: 8px 0 16px; text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  th, td { border: 1px solid #9aa5b1; padding: 6px 8px; text-align: center; font-weight: 700; }
+  .plan-group-within { background: #3d7a5a; color: #fff; }
+  .plan-group-overdue { background: #8f1d2c; color: #fff; }
+  .plan-total-head, .plan-total-foot { background: #5b99c9; color: #fff; }
+  tfoot th, tfoot td { background: #1f4e79; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="brand">${logoHtml}<p class="kicker">إدارة الالتزام</p></div>
+  <h1>${escapeHtml(title)}</h1>
+  ${table ? table.outerHTML : ""}
+</body>
+</html>`;
+            const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "حالة-خطط-المعالجة.doc";
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+        }
+
+        async function downloadPlanStatusWord() {
+            const btn = document.getElementById("planStatusWordBtn");
+            const fallback = () => downloadPlanStatusWordHtml(lastPlanStatusPayload);
+            try {
+                if (btn) {
+                    btn.disabled = true;
+                }
+                const qs = buildFilterQueryString(state);
+                const refInput = document.getElementById("agingReferenceDate");
+                if (refInput && refInput.value) {
+                    qs.set("reference", refInput.value);
+                }
+                const response = await fetch(`${arApiUrl("/export-plan-status-docx")}?${qs.toString()}`, {
+                    credentials: "same-origin"
+                });
+                if (!response.ok) {
+                    fallback();
+                    return;
+                }
+                const blob = await response.blob();
+                const type = (blob.type || "").toLowerCase();
+                if (type.includes("json") || blob.size < 80) {
+                    fallback();
+                    return;
+                }
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "حالة-خطط-المعالجة.docx";
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+            } catch (_err) {
+                fallback();
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                }
+            }
+        }
+
+        document.getElementById("planStatusClose")?.addEventListener("click", closePlanStatusModal);
+        document.getElementById("planStatusWordBtn")?.addEventListener("click", () => {
+            downloadPlanStatusWord();
+        });
+        document.getElementById("planStatusSearch")?.addEventListener("input", (event) => {
+            planStatusQuery = event.target.value || "";
+            if (lastPlanStatusPayload) {
+                paintPlanStatusModal(lastPlanStatusPayload);
+            }
+        });
+        planStatusModal?.addEventListener("click", (event) => {
+            if (event.target === planStatusModal) {
+                closePlanStatusModal();
+            }
+        });
+        document.getElementById("planStatusToggle")?.addEventListener("change", async (event) => {
+            if (event.target.checked) {
+                if (planStatusModal) {
+                    planStatusModal.style.display = "flex";
+                }
+                syncReportBrandLogos();
+                await refreshPlanStatusReport();
+            } else {
+                closePlanStatusModal();
+            }
         });
 
         const legalDetailsCache = new Map();

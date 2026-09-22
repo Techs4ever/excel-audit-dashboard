@@ -24,6 +24,7 @@ from arabic_compliance_dashboard.engine import (
     build_record_list,
     build_summary,
     compute_aging,
+    compute_plan_status_report,
     legal_details_from_rows,
     parse_query_params,
     selected_from_params,
@@ -34,6 +35,7 @@ from arabic_compliance_dashboard.word_export import (
     build_assessment_forms_docx,
     build_assessment_list_docx,
     build_legal_text_docx,
+    build_plan_status_docx,
     decode_logo_data_uri,
 )
 from arabic_compliance_dashboard.generator import export_snapshot_html
@@ -111,6 +113,9 @@ def ar_api_records(request, pk: int):
             reference_raw=(request.GET.get("reference") or "").strip() or None,
             final_status_change=(request.GET.get("final_status_change") or "").strip() in {"1", "true", "yes"},
             assessment_new=(request.GET.get("assessment_new") or "").strip() in {"1", "true", "yes"},
+            plan_dept=(request.GET.get("plan_dept") if "plan_dept" in request.GET else None),
+            plan_bucket=(request.GET.get("plan_bucket") or "").strip() or None,
+            plan_risk=(request.GET.get("plan_risk") or "").strip() or None,
         )
     )
 
@@ -169,6 +174,37 @@ def ar_api_export_aging_docx(request, pk: int):
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
     resp["Content-Disposition"] = 'attachment; filename="aging-summary.docx"'
+    return resp
+
+
+@login_required
+@require_GET
+def ar_api_plan_status_summary(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    ref = (request.GET.get("reference") or "").strip()
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    return JsonResponse(compute_plan_status_report(rows, selected, ref))
+
+
+@login_required
+@require_GET
+def ar_api_export_plan_status_docx(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    ref = (request.GET.get("reference") or "").strip()
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    payload = compute_plan_status_report(rows, selected, ref)
+    raw = build_plan_status_docx(payload, logo_bytes=_dashboard_logo_bytes(dashboard))
+    resp = HttpResponse(
+        raw,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="plan-corrective-status.docx"'
     return resp
 
 

@@ -137,6 +137,10 @@
                     <input type="checkbox" id="fileStudioToggle">
                     سجل الالتزام
                 </label>
+                <label class="inline-check">
+                    <input type="checkbox" id="planStatusToggle">
+                    حالة خطط المعالجة
+                </label>
             </div>
         </section>
         
@@ -265,6 +269,32 @@
                 </div>
             </div>
             <div id="agingModalBody" class="modal-body"></div>
+        </div>
+    </div>
+
+    <div id="planStatusModal" class="modal-overlay plan-status-overlay" role="dialog" aria-modal="true" aria-labelledby="planStatusTitle" style="display:none;z-index:62;">
+        <div class="modal plan-status-sheet">
+            <div class="plan-status-brand">
+                <img id="planStatusLogo" class="report-brand-logo" alt="شعار الشركة" hidden>
+                <span class="report-brand-mark">إدارة الالتزام</span>
+            </div>
+            <div class="plan-status-header">
+                <div class="plan-status-heading">
+                    <p class="plan-status-kicker">تقرير الإدارات</p>
+                    <h3 id="planStatusTitle" class="plan-status-title">حالة خطط المعالجة والإجراءات التصحيحية المتفق عليها مع الإدارة</h3>
+                    <p id="planStatusMeta" class="plan-status-meta"></p>
+                </div>
+                <div class="plan-status-actions">
+                    <label class="plan-status-search">
+                        <span class="visually-hidden">بحث عن إدارة</span>
+                        <input id="planStatusSearch" type="search" placeholder="بحث عن إدارة…" autocomplete="off">
+                    </label>
+                    <button id="planStatusWordBtn" type="button" class="assessment-word-btn">تنزيل Word</button>
+                    <button id="planStatusClose" type="button" class="modal-close">إغلاق</button>
+                </div>
+            </div>
+            <div id="planStatusKpis" class="plan-status-kpis" hidden></div>
+            <div id="planStatusBody" class="plan-status-body"></div>
         </div>
     </div>
 

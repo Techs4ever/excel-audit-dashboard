@@ -24,10 +24,12 @@ from .views import (
 )
 from .ar_compliance_views import (
     ar_api_aging_summary,
+    ar_api_plan_status_summary,
     ar_api_audit_plan_panel,
     ar_api_brand_logo,
     ar_api_assessment_forms,
     ar_api_export_aging_docx,
+    ar_api_export_plan_status_docx,
     ar_api_export_annual_tracking_docx,
     ar_api_export_assessment_forms_docx,
     ar_api_export_assessment_list_docx,
@@ -125,6 +127,26 @@ urlpatterns = [
         "dashboards/<int:pk>/ar-api/export-aging-docx/",
         ar_api_export_aging_docx,
         name="ar_api_export_aging_docx_slash",
+    ),
+    path(
+        "dashboards/<int:pk>/ar-api/plan-status-summary",
+        ar_api_plan_status_summary,
+        name="ar_api_plan_status_summary",
+    ),
+    path(
+        "dashboards/<int:pk>/ar-api/plan-status-summary/",
+        ar_api_plan_status_summary,
+        name="ar_api_plan_status_summary_slash",
+    ),
+    path(
+        "dashboards/<int:pk>/ar-api/export-plan-status-docx",
+        ar_api_export_plan_status_docx,
+        name="ar_api_export_plan_status_docx",
+    ),
+    path(
+        "dashboards/<int:pk>/ar-api/export-plan-status-docx/",
+        ar_api_export_plan_status_docx,
+        name="ar_api_export_plan_status_docx_slash",
     ),
     path("dashboards/<int:pk>/ar-api/legal-text-details", ar_api_legal_text_details, name="ar_api_legal_details"),
     path("dashboards/<int:pk>/ar-api/legal-text-details/", ar_api_legal_text_details, name="ar_api_legal_details_slash"),

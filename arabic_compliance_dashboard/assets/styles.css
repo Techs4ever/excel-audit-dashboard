@@ -1138,6 +1138,173 @@
             border-radius: 12px;
             border: 1px dashed #cbd5e1;
         }
+        .plan-status-overlay {
+            align-items: stretch;
+        }
+        .plan-status-sheet {
+            width: min(1280px, 100%);
+            max-height: 96vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #fff;
+        }
+        .plan-status-brand {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 18px 8px;
+            border-bottom: 3px solid #1f4e79;
+        }
+        .plan-status-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 18px 8px;
+            flex-wrap: wrap;
+        }
+        .plan-status-kicker {
+            margin: 0 0 4px;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            color: #64748b;
+        }
+        .plan-status-title {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+            text-decoration: underline;
+            text-underline-offset: 6px;
+            line-height: 1.55;
+        }
+        .plan-status-meta {
+            margin: 6px 0 0;
+            font-size: 13px;
+            font-weight: 700;
+            color: #64748b;
+        }
+        .plan-status-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .plan-status-search input {
+            border: 1px solid #d7dee8;
+            border-radius: 10px;
+            padding: 8px 12px;
+            min-width: 180px;
+            font-weight: 700;
+        }
+        .plan-status-kpis {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            padding: 0 18px 12px;
+        }
+        .plan-kpi {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .plan-kpi span {
+            font-size: 12px;
+            font-weight: 800;
+            color: #64748b;
+        }
+        .plan-kpi strong {
+            font-size: 22px;
+            color: #0f172a;
+        }
+        .plan-kpi-ok {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+        }
+        .plan-kpi-due {
+            background: #fef2f2;
+            border-color: #fecaca;
+        }
+        .plan-status-body {
+            padding: 0 18px 18px;
+            overflow: auto;
+        }
+        .plan-status-table-wrap {
+            overflow-x: auto;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+        }
+        .plan-status-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 980px;
+        }
+        .plan-status-table th,
+        .plan-status-table td {
+            border: 1px solid #94a3b8;
+            padding: 8px 6px;
+            text-align: center;
+            font-weight: 800;
+        }
+        .plan-status-table .plan-corner {
+            background: #f8fafc;
+            color: #0f172a;
+            min-width: 140px;
+        }
+        .plan-status-table .plan-group-within {
+            background: #3d7a5a;
+            color: #fff;
+        }
+        .plan-status-table .plan-group-overdue {
+            background: #8f1d2c;
+            color: #fff;
+        }
+        .plan-status-table .plan-total-head,
+        .plan-status-table .plan-total-foot {
+            background: #5b99c9;
+            color: #fff;
+        }
+        .plan-status-table .plan-dept-cell {
+            background: #fff;
+            color: #0f172a;
+            text-align: right;
+            cursor: pointer;
+            min-width: 160px;
+        }
+        .plan-status-table .plan-dept-cell:hover {
+            background: #eff6ff;
+        }
+        .plan-status-table .plan-status-count {
+            cursor: pointer;
+            color: #1d4ed8;
+        }
+        .plan-status-table .plan-status-count:hover {
+            background: #eff6ff;
+            text-decoration: underline;
+        }
+        .plan-status-table tfoot th,
+        .plan-status-table tfoot td {
+            background: #1f4e79;
+            color: #fff;
+        }
+        .plan-status-empty {
+            color: #64748b;
+            font-weight: 700;
+            padding: 22px !important;
+        }
+        @media (max-width: 800px) {
+            .plan-status-kpis {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
         .row-track {
             direction: rtl;
             display: flex;

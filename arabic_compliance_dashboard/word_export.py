@@ -707,3 +707,224 @@ def build_aging_matrix_docx(
     buf = io.BytesIO()
     document.save(buf)
     return buf.getvalue()
+
+
+def build_plan_status_docx(
+    payload: dict[str, Any],
+    *,
+    logo_bytes: bytes | None = None,
+) -> bytes:
+    """Landscape Word report for department corrective-plan status."""
+    data = payload or {}
+    document = Document()
+    section = document.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.page_width = Cm(29.7)
+    section.page_height = Cm(21.0)
+    section.top_margin = Cm(1.15)
+    section.bottom_margin = Cm(1.15)
+    section.left_margin = Cm(1.1)
+    section.right_margin = Cm(1.1)
+    sectPr = section._sectPr
+    bidi = OxmlElement("w:bidi")
+    bidi.set(qn("w:val"), "1")
+    sectPr.append(bidi)
+    _add_document_brand(document, logo_bytes)
+
+    title = document.add_paragraph()
+    _rtl_paragraph(title, WD_ALIGN_PARAGRAPH.RIGHT)
+    heading = str(
+        data.get("title")
+        or "حالة خطط المعالجة والإجراءات التصحيحية المتفق عليها مع الإدارة."
+    )
+    run = title.add_run(heading)
+    _set_run_font(run, size=16, bold=True, color=NAVY)
+    run.underline = True
+
+    ref = str(data.get("reference") or "").strip()
+    if ref:
+        meta = document.add_paragraph()
+        _rtl_paragraph(meta, WD_ALIGN_PARAGRAPH.RIGHT)
+        meta_run = meta.add_run(f"تاريخ المرجع: {ref}")
+        _set_run_font(meta_run, size=10, bold=True, color="64748B")
+
+    risk_cols = list(data.get("risk_columns") or [])
+    departments = list(data.get("departments") or [])
+    totals = data.get("totals") or {}
+    group_width = len(risk_cols) + 1
+    cols = 2 + (group_width * 2)
+    table = document.add_table(rows=3 + max(len(departments), 1), cols=max(cols, 4))
+    table.autofit = True
+    _set_table_rtl(table)
+
+    def _count_text(value: Any) -> str:
+        try:
+            n = int(value or 0)
+        except (TypeError, ValueError):
+            n = 0
+        return str(n) if n else ""
+
+    _write_cell(
+        table.rows[0].cells[0],
+        "الادارة او الجهة المعنية",
+        fill="F8FAFC",
+        bold=True,
+        color="0F172A",
+        size=10,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    _write_cell(
+        table.rows[0].cells[1],
+        "عدد النصوص النظامية",
+        fill="F8FAFC",
+        bold=True,
+        color="0F172A",
+        size=10,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    _write_cell(
+        table.rows[0].cells[2],
+        "مفتوحة ضمن الجدول الزمني",
+        fill="3D7A5A",
+        bold=True,
+        color="FFFFFF",
+        size=11,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    _write_cell(
+        table.rows[0].cells[2 + group_width],
+        "مفتوحة تجاوزت الجدول الزمني",
+        fill="8F1D2C",
+        bold=True,
+        color="FFFFFF",
+        size=11,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    table.cell(0, 0).merge(table.cell(1, 0))
+    table.cell(0, 1).merge(table.cell(1, 1))
+    table.cell(0, 2).merge(table.cell(0, 1 + group_width))
+    table.cell(0, 2 + group_width).merge(table.cell(0, cols - 1))
+
+    for offset in (2, 2 + group_width):
+        for i, rc in enumerate(risk_cols):
+            _write_cell(
+                table.rows[1].cells[offset + i],
+                str(rc.get("label") or ""),
+                fill=_hex_color(rc.get("color"), "7B8794"),
+                bold=True,
+                color=_hex_color(rc.get("text_color"), "FFFFFF"),
+                size=9,
+                align=WD_ALIGN_PARAGRAPH.CENTER,
+            )
+        _write_cell(
+            table.rows[1].cells[offset + len(risk_cols)],
+            "الاجمالي",
+            fill="5B99C9",
+            bold=True,
+            color="FFFFFF",
+            size=9,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+        )
+
+    body_start = 2
+    if not departments:
+        _write_cell(
+            table.rows[body_start].cells[0],
+            "لا توجد خطط مفتوحة مطابقة.",
+            fill="FFFFFF",
+            bold=True,
+            color="64748B",
+            size=11,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+        )
+        table.cell(body_start, 0).merge(table.cell(body_start, cols - 1))
+        foot_idx = body_start + 1
+    else:
+        for ridx, dept in enumerate(departments):
+            row = table.rows[body_start + ridx]
+            fill = "F8FAFC" if ridx % 2 else "FFFFFF"
+            _write_cell(
+                row.cells[0],
+                str(dept.get("label") or "—"),
+                fill=fill,
+                bold=True,
+                color="0F172A",
+                size=10,
+                align=WD_ALIGN_PARAGRAPH.RIGHT,
+            )
+            _write_cell(
+                row.cells[1],
+                _count_text(dept.get("legal_text_count")),
+                fill=fill,
+                bold=True,
+                color="1F4E79",
+                size=11,
+                align=WD_ALIGN_PARAGRAPH.CENTER,
+            )
+            for offset, group in ((2, "within"), (2 + group_width, "overdue")):
+                cells = dept.get(group) or {}
+                for i, rc in enumerate(risk_cols):
+                    _write_cell(
+                        row.cells[offset + i],
+                        _count_text(cells.get(rc.get("id"), 0)),
+                        fill=fill,
+                        bold=True,
+                        color="1E293B",
+                        size=11,
+                        align=WD_ALIGN_PARAGRAPH.CENTER,
+                    )
+                _write_cell(
+                    row.cells[offset + len(risk_cols)],
+                    _count_text(dept.get(f"{group}_total")),
+                    fill="E0F2FE",
+                    bold=True,
+                    color="0F172A",
+                    size=11,
+                    align=WD_ALIGN_PARAGRAPH.CENTER,
+                )
+        foot_idx = body_start + len(departments)
+
+    foot = table.rows[foot_idx]
+    _write_cell(
+        foot.cells[0],
+        "الاجمالي",
+        fill="1F4E79",
+        bold=True,
+        color="FFFFFF",
+        size=10,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    _write_cell(
+        foot.cells[1],
+        _count_text(totals.get("legal_text_count")),
+        fill="1F4E79",
+        bold=True,
+        color="FFFFFF",
+        size=11,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    for offset, group in ((2, "within"), (2 + group_width, "overdue")):
+        cells = totals.get(group) or {}
+        for i, rc in enumerate(risk_cols):
+            _write_cell(
+                foot.cells[offset + i],
+                _count_text(cells.get(rc.get("id"), 0)),
+                fill="1E3A5F",
+                bold=True,
+                color="FFFFFF",
+                size=11,
+                align=WD_ALIGN_PARAGRAPH.CENTER,
+            )
+        _write_cell(
+            foot.cells[offset + len(risk_cols)],
+            _count_text(totals.get(f"{group}_total")),
+            fill="163A5C",
+            bold=True,
+            color="FFFFFF",
+            size=11,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+        )
+
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
