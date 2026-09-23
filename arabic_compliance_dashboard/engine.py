@@ -385,6 +385,8 @@ def build_record_list(
     plan_dept: str | None = None,
     plan_bucket: str | None = None,
     plan_risk: str | None = None,
+    program_dept: str | None = None,
+    program_status: str | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Filtered register rows for the second-click drill-down sheet."""
@@ -406,6 +408,11 @@ def build_record_list(
             for r in filtered
             if plan_row_matches(r, ref, dept_id, plan_bucket, plan_risk)
         ]
+    if program_dept is not None or program_status:
+        dept_id = None
+        if program_dept is not None:
+            dept_id = "" if program_dept in {"", "__none__", "(blank)"} else program_dept
+        filtered = [r for r in filtered if program_row_matches(r, dept_id, program_status)]
     if final_status_change:
         filtered = [r for r in filtered if final_compliance_regressed(r)]
     if assessment_new:
@@ -732,6 +739,137 @@ def compute_plan_status_report(
     }
 
 
+PROGRAM_STATUS_TITLE = "الحالة العامة لبرنامج الالتزام"
+PROGRAM_STATUS_GUIDE = "دليل تصنيف الحالة العامة للبرنامج"
+PROGRAM_STATUS_LEVELS: list[dict[str, str]] = [
+    {
+        "id": "green",
+        "label": "أخضر",
+        "color": "#3d7a5a",
+        "text": "البرنامج يعمل ضمن المستويات المقبولة للمخاطر، ولا توجد قضايا التزام جوهرية.",
+    },
+    {
+        "id": "yellow",
+        "label": "أصفر",
+        "color": "#c9a227",
+        "text": "توجد قضايا أو مخاطر تتطلب متابعة، لكنها لا تشكل تهديداً جوهرياً في الوقت الحالي.",
+    },
+    {
+        "id": "red",
+        "label": "أحمر",
+        "color": "#c24141",
+        "text": "توجد قضايا جوهرية أو تجاوزات تنظيمية تستدعي تدخلاً عاجلاً من اللجنة والإدارة.",
+    },
+]
+
+
+def program_compliance_bucket(status_text: str) -> str | None:
+    """compliant | partial | noncompliant from حالة الالتزام وفقًا لإدارة الالتزام."""
+    t = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(status_text or "")).strip())
+    if not t or t == BLANK:
+        return None
+    compact = t.replace(" ", "")
+    if "غيرملتزم" in compact or re.search(r"غير\s*ملتزم", t):
+        return "noncompliant"
+    if "جزئي" in t:
+        return "partial"
+    if "ملتزم" in t:
+        return "compliant"
+    return None
+
+
+def program_row_matches(
+    row: dict[str, str],
+    dept_id: str | None,
+    bucket: str | None,
+) -> bool:
+    classified = program_compliance_bucket(compliance_mgmt_status_from_row(row))
+    if not classified:
+        return False
+    want_dept = None if dept_id is None else str(dept_id)
+    if want_dept is not None and plan_dept_id(row) != want_dept:
+        return False
+    want_bucket = str(bucket or "").strip()
+    if want_bucket and want_bucket not in {"all", "*"} and classified != want_bucket:
+        return False
+    return True
+
+
+def _program_overall_level(noncompliant: int, partial: int, overall_id: str = "") -> dict[str, str]:
+    want = str(overall_id or "").strip().lower()
+    if want in {"red", "yellow", "green"}:
+        level_id = want
+    elif noncompliant > 0:
+        level_id = "red"
+    elif partial > 0:
+        level_id = "yellow"
+    else:
+        level_id = "green"
+    level = next(item for item in PROGRAM_STATUS_LEVELS if item["id"] == level_id)
+    return dict(level)
+
+
+def compute_program_status_report(
+    rows: list[dict[str, str]],
+    selected: dict[str, list[str]],
+    overall_id: str = "",
+) -> dict[str, Any]:
+    grouped: dict[str, dict[str, Any]] = {}
+    skipped_other = 0
+    for index, row in enumerate(apply_filters(rows, selected, None)):
+        bucket = program_compliance_bucket(compliance_mgmt_status_from_row(row))
+        if not bucket:
+            skipped_other += 1
+            continue
+        dept = plan_dept_id(row)
+        slot = grouped.get(dept)
+        if not slot:
+            slot = {
+                "id": dept,
+                "label": dept or "غير محدد",
+                "legal_ids": set(),
+                "compliant_ids": set(),
+                "noncompliant_ids": set(),
+                "partial_ids": set(),
+            }
+            grouped[dept] = slot
+        identity = plan_legal_identity(row, index)
+        slot["legal_ids"].add(identity)
+        slot[f"{bucket}_ids"].add(identity)
+
+    departments = []
+    for dept in sorted(grouped.keys(), key=lambda x: (x == "", x)):
+        slot = grouped[dept]
+        departments.append(
+            {
+                "id": slot["id"],
+                "label": slot["label"],
+                "legal_text_count": len(slot["legal_ids"]),
+                "compliant": len(slot["compliant_ids"]),
+                "noncompliant": len(slot["noncompliant_ids"]),
+                "partial": len(slot["partial_ids"]),
+            }
+        )
+
+    totals = {
+        "legal_text_count": sum(d["legal_text_count"] for d in departments),
+        "compliant": sum(d["compliant"] for d in departments),
+        "noncompliant": sum(d["noncompliant"] for d in departments),
+        "partial": sum(d["partial"] for d in departments),
+    }
+    overall = _program_overall_level(totals["noncompliant"], totals["partial"], overall_id)
+    return {
+        "title": PROGRAM_STATUS_TITLE,
+        "guide": PROGRAM_STATUS_GUIDE,
+        "levels": PROGRAM_STATUS_LEVELS,
+        "overall": overall,
+        "departments": departments,
+        "totals": totals,
+        "department_count": len(departments),
+        "skipped_other": skipped_other,
+    }
+
+
 def aging_row_risk_text(row: dict[str, str]) -> str:
     residual = row_value(row, COL_RESIDUAL)
     if residual != BLANK:
@@ -999,6 +1137,11 @@ def build_snapshot_pack(
         "plan_status_config": {
             "title": PLAN_STATUS_TITLE,
             "risk_columns": PLAN_STATUS_RISK_COLUMNS,
+        },
+        "program_status_config": {
+            "title": PROGRAM_STATUS_TITLE,
+            "guide": PROGRAM_STATUS_GUIDE,
+            "levels": PROGRAM_STATUS_LEVELS,
         },
         "audit_columns": AUDIT_COLUMNS,
         "brand_logos": brand_logos or {},

@@ -25,6 +25,7 @@ from arabic_compliance_dashboard.engine import (
     build_summary,
     compute_aging,
     compute_plan_status_report,
+    compute_program_status_report,
     legal_details_from_rows,
     parse_query_params,
     selected_from_params,
@@ -36,6 +37,7 @@ from arabic_compliance_dashboard.word_export import (
     build_assessment_list_docx,
     build_legal_text_docx,
     build_plan_status_docx,
+    build_program_status_docx,
     decode_logo_data_uri,
 )
 from arabic_compliance_dashboard.generator import export_snapshot_html
@@ -116,6 +118,8 @@ def ar_api_records(request, pk: int):
             plan_dept=(request.GET.get("plan_dept") if "plan_dept" in request.GET else None),
             plan_bucket=(request.GET.get("plan_bucket") or "").strip() or None,
             plan_risk=(request.GET.get("plan_risk") or "").strip() or None,
+            program_dept=(request.GET.get("program_dept") if "program_dept" in request.GET else None),
+            program_status=(request.GET.get("program_status") or "").strip() or None,
         )
     )
 
@@ -205,6 +209,45 @@ def ar_api_export_plan_status_docx(request, pk: int):
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
     resp["Content-Disposition"] = 'attachment; filename="plan-corrective-status.docx"'
+    return resp
+
+
+@login_required
+@require_GET
+def ar_api_program_status_summary(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    return JsonResponse(
+        compute_program_status_report(
+            rows,
+            selected,
+            overall_id=(request.GET.get("overall") or "").strip(),
+        )
+    )
+
+
+@login_required
+@require_GET
+def ar_api_export_program_status_docx(request, pk: int):
+    dashboard, err = _resolve_ar_dashboard(request, pk)
+    if err:
+        return err
+    rows = _rows_for(dashboard)
+    selected = selected_from_params(parse_query_params(request.GET))
+    payload = compute_program_status_report(
+        rows,
+        selected,
+        overall_id=(request.GET.get("overall") or "").strip(),
+    )
+    raw = build_program_status_docx(payload, logo_bytes=_dashboard_logo_bytes(dashboard))
+    resp = HttpResponse(
+        raw,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="program-compliance-status.docx"'
     return resp
 
 

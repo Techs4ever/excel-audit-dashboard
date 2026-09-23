@@ -656,6 +656,103 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                     skipped_other: skippedOther
                 };
             };
+            const PROGRAM_STATUS_LEVELS = (pack.program_status_config && pack.program_status_config.levels) || [
+                { id: "green", label: "أخضر", color: "#3d7a5a", text: "البرنامج يعمل ضمن المستويات المقبولة للمخاطر، ولا توجد قضايا التزام جوهرية." },
+                { id: "yellow", label: "أصفر", color: "#c9a227", text: "توجد قضايا أو مخاطر تتطلب متابعة، لكنها لا تشكل تهديداً جوهرياً في الوقت الحالي." },
+                { id: "red", label: "أحمر", color: "#c24141", text: "توجد قضايا جوهرية أو تجاوزات تنظيمية تستدعي تدخلاً عاجلاً من اللجنة والإدارة." }
+            ];
+            const PROGRAM_STATUS_TITLE = (pack.program_status_config && pack.program_status_config.title) || "الحالة العامة لبرنامج الالتزام";
+            const PROGRAM_STATUS_GUIDE = (pack.program_status_config && pack.program_status_config.guide) || "دليل تصنيف الحالة العامة للبرنامج";
+            const programStatusFromRow = (row) => {
+                for (const key of Object.keys(row || {})) {
+                    const k = String(key || "").normalize("NFKC");
+                    if (k.includes("حالة الالتزام") && k.includes("إدارة الالتزام")) {
+                        const v = rowValue(row, key);
+                        if (v && v !== BLANK) return v;
+                    }
+                }
+                return rowValue(row, "حالة الالتزام بالمتطلبات");
+            };
+            const programComplianceBucket = (statusText) => {
+                const t = normNFKC(statusText).replace(/\s+/g, " ").trim();
+                if (!t || t === BLANK) return null;
+                const compact = t.replace(/\s/g, "");
+                if (compact.includes("غيرملتزم") || /غير\s*ملتزم/.test(t)) return "noncompliant";
+                if (t.includes("جزئي")) return "partial";
+                if (t.includes("ملتزم")) return "compliant";
+                return null;
+            };
+            const programRowMatches = (row, deptId, bucket) => {
+                const classified = programComplianceBucket(programStatusFromRow(row));
+                if (!classified) return false;
+                if (deptId !== null && deptId !== undefined && planDeptId(row) !== deptId) return false;
+                const want = String(bucket || "").trim();
+                if (want && want !== "all" && want !== "*" && classified !== want) return false;
+                return true;
+            };
+            const computeProgramStatusReport = (rows, selected) => {
+                const grouped = {};
+                let skippedOther = 0;
+                applyFilters(rows, selected, null).forEach((row, index) => {
+                    const bucket = programComplianceBucket(programStatusFromRow(row));
+                    if (!bucket) {
+                        skippedOther += 1;
+                        return;
+                    }
+                    const dept = planDeptId(row);
+                    if (!grouped[dept]) {
+                        grouped[dept] = {
+                            id: dept,
+                            label: dept || "غير محدد",
+                            legalIds: new Set(),
+                            compliantIds: new Set(),
+                            noncompliantIds: new Set(),
+                            partialIds: new Set()
+                        };
+                    }
+                    const identity = planLegalIdentity(row, index);
+                    const slot = grouped[dept];
+                    slot.legalIds.add(identity);
+                    slot[`${bucket}Ids`].add(identity);
+                });
+                const departments = Object.keys(grouped)
+                    .sort((a, b) => {
+                        if (!a && b) return 1;
+                        if (a && !b) return -1;
+                        return String(a).localeCompare(String(b), "ar");
+                    })
+                    .map((dept) => {
+                        const slot = grouped[dept];
+                        return {
+                            id: slot.id,
+                            label: slot.label,
+                            legal_text_count: slot.legalIds.size,
+                            compliant: slot.compliantIds.size,
+                            noncompliant: slot.noncompliantIds.size,
+                            partial: slot.partialIds.size
+                        };
+                    });
+                const totals = {
+                    legal_text_count: departments.reduce((s, d) => s + d.legal_text_count, 0),
+                    compliant: departments.reduce((s, d) => s + d.compliant, 0),
+                    noncompliant: departments.reduce((s, d) => s + d.noncompliant, 0),
+                    partial: departments.reduce((s, d) => s + d.partial, 0)
+                };
+                let overallId = "green";
+                if (totals.noncompliant > 0) overallId = "red";
+                else if (totals.partial > 0) overallId = "yellow";
+                const overall = PROGRAM_STATUS_LEVELS.find((item) => item.id === overallId) || PROGRAM_STATUS_LEVELS[0];
+                return {
+                    title: PROGRAM_STATUS_TITLE,
+                    guide: PROGRAM_STATUS_GUIDE,
+                    levels: PROGRAM_STATUS_LEVELS,
+                    overall,
+                    departments,
+                    totals,
+                    department_count: departments.length,
+                    skipped_other: skippedOther
+                };
+            };
             const parseFetch = (url) => {
                 if (url.includes("://")) {
                     const u = new URL(url);
@@ -722,6 +819,15 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                             deptId = !rawDept || rawDept === "__none__" || rawDept === "(blank)" ? "" : rawDept;
                         }
                         filtered = filtered.filter((row) => planRowMatches(row, planRef, deptId, planBucket, planRisk));
+                    }
+                    const programStatus = (sp.get("program_status") || "").trim();
+                    if (sp.has("program_dept") || programStatus) {
+                        let deptId = null;
+                        if (sp.has("program_dept")) {
+                            const rawDept = String(sp.get("program_dept") || "").trim();
+                            deptId = !rawDept || rawDept === "__none__" || rawDept === "(blank)" ? "" : rawDept;
+                        }
+                        filtered = filtered.filter((row) => programRowMatches(row, deptId, programStatus));
                     }
                     const finalChange = ["1", "true", "yes"].includes(String(sp.get("final_status_change") || "").trim().toLowerCase());
                     const assessmentNew = ["1", "true", "yes"].includes(String(sp.get("assessment_new") || "").trim().toLowerCase());
@@ -949,6 +1055,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 if (path.includes("/api/plan-status-summary") || path.includes("/ar-api/plan-status-summary")) {
                     const ref = (sp.get("reference") || "").trim();
                     return jsonResponse(computePlanStatusReport(rows, selectedFromParams(sp), ref));
+                }
+                if (path.includes("/api/program-status-summary") || path.includes("/ar-api/program-status-summary")) {
+                    return jsonResponse(computeProgramStatusReport(rows, selectedFromParams(sp)));
                 }
                 return origFetch(input, init);
             };
@@ -3020,6 +3129,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             if (document.getElementById("planStatusToggle")?.checked && isPlanStatusOpen()) {
                 await refreshPlanStatusReport();
             }
+            if (document.getElementById("programStatusToggle")?.checked && isProgramStatusOpen()) {
+                await refreshProgramStatusReport();
+            }
             // no-op: compliance plan editor is local (no server refresh required)
         }
 
@@ -3339,6 +3451,10 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             }
             if (isPlanStatusOpen()) {
                 closePlanStatusModal();
+                return;
+            }
+            if (isProgramStatusOpen()) {
+                closeProgramStatusModal();
                 return;
             }
             if (isFileStudioOpen()) {
@@ -3956,6 +4072,337 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 await refreshPlanStatusReport();
             } else {
                 closePlanStatusModal();
+            }
+        });
+
+        const programStatusModal = document.getElementById("programStatusModal");
+        const programStatusBody = document.getElementById("programStatusBody");
+        let lastProgramStatusPayload = null;
+        let programStatusQuery = "";
+
+        function isProgramStatusOpen() {
+            return !!(programStatusModal && programStatusModal.style.display === "flex");
+        }
+
+        function closeProgramStatusModal() {
+            if (programStatusModal) {
+                programStatusModal.style.display = "none";
+            }
+            const toggle = document.getElementById("programStatusToggle");
+            if (toggle) {
+                toggle.checked = false;
+            }
+            const search = document.getElementById("programStatusSearch");
+            if (search) {
+                search.value = "";
+            }
+            programStatusQuery = "";
+            const sheet = programStatusModal && programStatusModal.querySelector(".program-status-sheet");
+            if (sheet) {
+                sheet.style.transform = "none";
+            }
+        }
+
+        function programDeptParam(deptId) {
+            return deptId ? String(deptId) : "__none__";
+        }
+
+        function programCountText(value) {
+            const n = Number(value || 0);
+            return n ? toEnglishNumber(n) : "";
+        }
+
+        function openProgramStatusRecords(deptId, bucket, title) {
+            const extra = {
+                skip_quarters: true,
+                program_dept: programDeptParam(deptId)
+            };
+            if (bucket) {
+                extra.program_status = bucket;
+            }
+            openRecordList(title || "متطلبات الالتزام", extra);
+        }
+
+        function programCountCell(value, deptId, bucket, title, extraClass) {
+            const n = Number(value || 0);
+            if (!n) {
+                return `<td class="${extraClass || ""}"></td>`;
+            }
+            return `<td class="program-status-count ${extraClass || ""}" data-program-dept="${escapeHtml(programDeptParam(deptId))}" data-program-status="${escapeHtml(bucket || "all")}" data-program-title="${escapeHtml(title || "")}" title="عرض السجلات">${programCountText(n)}</td>`;
+        }
+
+        function renderProgramStatusTable(data, query) {
+            const q = String(query || "").trim().toLowerCase();
+            const departments = (data.departments || []).filter((d) => {
+                if (!q) return true;
+                return String(d.label || "").toLowerCase().includes(q);
+            });
+            const totals = data.totals || {};
+            let body = "";
+            departments.forEach((dept) => {
+                const deptId = dept.id || "";
+                body += `<tr>
+                    <th class="program-dept-cell" data-program-dept="${escapeHtml(programDeptParam(deptId))}" data-program-status="all" data-program-title="${escapeHtml(dept.label || "")}">${escapeHtml(dept.label || "—")}</th>
+                    ${programCountCell(dept.legal_text_count, deptId, "all", `${dept.label} · المتطلبات النظامية`)}
+                    ${programCountCell(dept.compliant, deptId, "compliant", `${dept.label} · ملتزم`, "is-ok")}
+                    ${programCountCell(dept.noncompliant, deptId, "noncompliant", `${dept.label} · غير ملتزم`, "is-bad")}
+                    ${programCountCell(dept.partial, deptId, "partial", `${dept.label} · ملتزم جزئيا`, "is-mid")}
+                </tr>`;
+            });
+            if (!body) {
+                body = `<tr><td class="program-status-empty" colspan="5">لا توجد متطلبات مطابقة.</td></tr>`;
+            }
+            return `<div class="program-status-table-wrap">
+                <p class="program-table-caption">ملخص المتطلبات النظامية التي خضعت لبرنامج الالتزام حسب الادارة او الجهة المعنية</p>
+                <table class="program-status-table" dir="rtl">
+                    <thead>
+                        <tr>
+                            <th>الادارة او الجهة المعنية</th>
+                            <th>عدد المتطلبات النظامية</th>
+                            <th class="is-ok">عدد المتطلبات الملتزم بها</th>
+                            <th class="is-bad">عدد المتطلبات غير الملتزم بها</th>
+                            <th class="is-mid">عدد المتطلبات الملتزم بها جزئيا</th>
+                        </tr>
+                    </thead>
+                    <tbody>${body}</tbody>
+                    <tfoot>
+                        <tr>
+                            <th>الاجمالي</th>
+                            <td>${programCountText(totals.legal_text_count)}</td>
+                            <td class="is-ok">${programCountText(totals.compliant)}</td>
+                            <td class="is-bad">${programCountText(totals.noncompliant)}</td>
+                            <td class="is-mid">${programCountText(totals.partial)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>`;
+        }
+
+        let programOverallChoice = "";
+        try {
+            const saved = localStorage.getItem("arProgramOverallColor");
+            if (saved === "red" || saved === "yellow" || saved === "green") {
+                programOverallChoice = saved;
+            }
+        } catch (_err) {
+            programOverallChoice = "";
+        }
+
+        function programOverallLevel(data) {
+            const levels = (data && data.levels) || [];
+            const chosen = programOverallChoice || (data && data.overall && data.overall.id) || "green";
+            return levels.find((item) => item.id === chosen) || data.overall || { id: "green", label: "أخضر" };
+        }
+
+        function setProgramOverallChoice(levelId) {
+            const id = String(levelId || "").toLowerCase();
+            if (id !== "red" && id !== "yellow" && id !== "green") {
+                return;
+            }
+            programOverallChoice = id;
+            try {
+                localStorage.setItem("arProgramOverallColor", id);
+            } catch (_err) {
+                /* ignore */
+            }
+            if (lastProgramStatusPayload) {
+                const levels = lastProgramStatusPayload.levels || [];
+                lastProgramStatusPayload.overall = levels.find((item) => item.id === id) || lastProgramStatusPayload.overall;
+                paintProgramStatusModal(lastProgramStatusPayload);
+            }
+        }
+
+        function paintProgramStatusModal(data) {
+            lastProgramStatusPayload = data;
+            const titleEl = document.getElementById("programStatusTitle");
+            const guideEl = document.getElementById("programStatusGuide");
+            const legendEl = document.getElementById("programStatusLegend");
+            const barEl = document.getElementById("programStatusBar");
+            if (titleEl) titleEl.textContent = data.title || "الحالة العامة لبرنامج الالتزام";
+            if (guideEl) guideEl.textContent = data.guide || "دليل تصنيف الحالة العامة للبرنامج";
+            const levels = data.levels || [];
+            const overall = programOverallLevel(data);
+            if (legendEl) {
+                legendEl.innerHTML = levels.map((level) => `
+                    <article class="program-legend-card is-${escapeHtml(level.id)}${level.id === overall.id ? " is-selected" : ""}">
+                        <span class="program-legend-dot" aria-hidden="true"></span>
+                        <h4>${escapeHtml(level.label || "")}</h4>
+                        <p>${escapeHtml(level.text || "")}</p>
+                    </article>`).join("");
+            }
+            if (barEl) {
+                barEl.className = `program-overall-bar is-${escapeHtml(overall.id || "green")}`;
+                barEl.innerHTML = `
+                    <div class="program-overall-label">الحالة العامة لبرنامج الالتزام:</div>
+                    <div class="program-overall-select is-${escapeHtml(overall.id || "green")}">
+                        <label class="program-overall-select-label" for="programOverallSelect">اختيار الحالة</label>
+                        <div class="program-overall-select-wrap">
+                            <span class="program-overall-swatch is-${escapeHtml(overall.id || "green")}" aria-hidden="true"></span>
+                            <select id="programOverallSelect" class="program-overall-dropdown" aria-label="الحالة العامة لبرنامج الالتزام">
+                                ${levels.map((level) => `<option value="${escapeHtml(level.id)}" ${level.id === overall.id ? "selected" : ""}>${escapeHtml(level.label || "")}</option>`).join("")}
+                            </select>
+                        </div>
+                    </div>`;
+                const selectEl = document.getElementById("programOverallSelect");
+                if (selectEl) {
+                    selectEl.addEventListener("change", (event) => {
+                        setProgramOverallChoice(event.target.value);
+                    });
+                }
+            }
+            if (programStatusBody) {
+                programStatusBody.innerHTML = renderProgramStatusTable(data, programStatusQuery);
+                programStatusBody.querySelectorAll(".program-status-count, .program-dept-cell").forEach((el) => {
+                    el.addEventListener("click", () => {
+                        const dept = el.dataset.programDept === "__none__" ? "" : (el.dataset.programDept || "");
+                        openProgramStatusRecords(dept, el.dataset.programStatus || "all", el.dataset.programTitle || "");
+                    });
+                });
+            }
+            requestAnimationFrame(() => fitProgramStatusPage());
+        }
+
+        function fitProgramStatusPage() {
+            const overlay = programStatusModal;
+            const sheet = overlay && overlay.querySelector(".program-status-sheet");
+            if (!overlay || !sheet || overlay.style.display !== "flex") {
+                return;
+            }
+            sheet.style.transform = "none";
+            const availW = overlay.clientWidth || window.innerWidth;
+            const availH = overlay.clientHeight || window.innerHeight;
+            const needW = Math.max(sheet.scrollWidth, sheet.offsetWidth);
+            const needH = Math.max(sheet.scrollHeight, sheet.offsetHeight);
+            if (!availW || !availH || !needW || !needH) {
+                return;
+            }
+            const scale = Math.min(1, availW / needW, availH / needH);
+            sheet.style.transformOrigin = "top center";
+            sheet.style.transform = scale < 0.999 ? `scale(${scale})` : "none";
+        }
+
+        async function refreshProgramStatusReport() {
+            if (!programStatusBody) return;
+            programStatusBody.innerHTML = `<div class="empty-hint">جاري التحميل...</div>`;
+            const qs = buildFilterQueryString(state);
+            try {
+                const response = await fetch(`${arApiUrl("/program-status-summary")}?${qs.toString()}`, {
+                    credentials: "same-origin"
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    programStatusBody.innerHTML = `<div class="empty-hint">تعذر حساب التقرير.</div>`;
+                    return;
+                }
+                paintProgramStatusModal(data);
+            } catch (_err) {
+                programStatusBody.innerHTML = `<div class="empty-hint">تعذر حساب التقرير.</div>`;
+            }
+        }
+
+        function downloadProgramStatusWordHtml(data) {
+            if (!data) return;
+            const logoSrc = currentBrandLogoSrc();
+            const logoHtml = logoSrc
+                ? `<img src="${escapeHtml(logoSrc)}" alt="" style="height:52px;max-width:180px;object-fit:contain;">`
+                : "";
+            const title = data.title || "الحالة العامة لبرنامج الالتزام";
+            const overall = programOverallLevel(data);
+            const barHtml = `<table style="width:100%;border-collapse:collapse;margin:12px 0 16px;">
+                <tr>
+                    <td style="background:#2a6499;color:#fff;font-weight:800;text-align:center;padding:10px;">الحالة العامة لبرنامج الالتزام:</td>
+                    <td class="is-${escapeHtml(overall.id || "green")}" style="text-align:center;font-weight:800;padding:10px;">${escapeHtml(overall.label || "")}</td>
+                </tr>
+            </table>`;
+            const wrap = document.createElement("div");
+            wrap.innerHTML = `${document.getElementById("programStatusLegend") ? document.getElementById("programStatusLegend").outerHTML : ""}${barHtml}${renderProgramStatusTable(data, "")}`;
+            const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(title)}</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; direction: rtl; color: #1e293b; }
+  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #1F4E79; padding-bottom: 10px; margin-bottom: 14px; }
+  h1 { color: #1F4E79; font-size: 18pt; margin: 8px 0 6px; text-decoration: underline; }
+  .program-legend { display: flex; gap: 10px; }
+  .program-legend-card { border: 1px solid #cbd5e1; padding: 10px; width: 32%; }
+  .is-green { background: #ecfdf3; }
+  .is-yellow { background: #fffbeb; }
+  .is-red { background: #fef2f2; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+  th, td { border: 1px solid #94a3b8; padding: 6px 8px; text-align: center; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="brand">${logoHtml}<p style="color:#1F4E79;font-weight:800;">إدارة الالتزام</p></div>
+  <h1>${escapeHtml(title)}</h1>
+  ${wrap.innerHTML}
+</body>
+</html>`;
+            const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "الحالة-العامة-لبرنامج-الالتزام.doc";
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+        }
+
+        async function downloadProgramStatusWord() {
+            const btn = document.getElementById("programStatusWordBtn");
+            const fallback = () => downloadProgramStatusWordHtml(lastProgramStatusPayload);
+            try {
+                if (btn) btn.disabled = true;
+                const qs = buildFilterQueryString(state);
+                if (programOverallChoice) {
+                    qs.set("overall", programOverallChoice);
+                }
+                const response = await fetch(`${arApiUrl("/export-program-status-docx")}?${qs.toString()}`, {
+                    credentials: "same-origin"
+                });
+                if (!response.ok) {
+                    fallback();
+                    return;
+                }
+                const blob = await response.blob();
+                const type = (blob.type || "").toLowerCase();
+                if (type.includes("json") || blob.size < 80) {
+                    fallback();
+                    return;
+                }
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "الحالة-العامة-لبرنامج-الالتزام.docx";
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+            } catch (_err) {
+                fallback();
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        document.getElementById("programStatusClose")?.addEventListener("click", closeProgramStatusModal);
+        document.getElementById("programStatusWordBtn")?.addEventListener("click", () => downloadProgramStatusWord());
+        document.getElementById("programStatusSearch")?.addEventListener("input", (event) => {
+            programStatusQuery = event.target.value || "";
+            if (lastProgramStatusPayload) paintProgramStatusModal(lastProgramStatusPayload);
+        });
+        programStatusModal?.addEventListener("click", (event) => {
+            if (event.target === programStatusModal) closeProgramStatusModal();
+        });
+        document.getElementById("programStatusToggle")?.addEventListener("change", async (event) => {
+            if (event.target.checked) {
+                if (programStatusModal) programStatusModal.style.display = "flex";
+                syncReportBrandLogos();
+                await refreshProgramStatusReport();
+            } else {
+                closeProgramStatusModal();
+            }
+        });
+        window.addEventListener("resize", () => {
+            if (isProgramStatusOpen()) {
+                fitProgramStatusPage();
             }
         });
 

@@ -928,3 +928,172 @@ def build_plan_status_docx(
     buf = io.BytesIO()
     document.save(buf)
     return buf.getvalue()
+
+
+def build_program_status_docx(
+    payload: dict[str, Any],
+    *,
+    logo_bytes: bytes | None = None,
+) -> bytes:
+    """Portrait Word report for overall program compliance status by department."""
+    data = payload or {}
+    document = Document()
+    section = document.sections[0]
+    section.orientation = WD_ORIENT.PORTRAIT
+    section.page_width = Cm(21.0)
+    section.page_height = Cm(29.7)
+    section.top_margin = Cm(1.2)
+    section.bottom_margin = Cm(1.2)
+    section.left_margin = Cm(1.2)
+    section.right_margin = Cm(1.2)
+    sectPr = section._sectPr
+    bidi = OxmlElement("w:bidi")
+    bidi.set(qn("w:val"), "1")
+    sectPr.append(bidi)
+    _add_document_brand(document, logo_bytes)
+
+    title = document.add_paragraph()
+    _rtl_paragraph(title, WD_ALIGN_PARAGRAPH.RIGHT)
+    run = title.add_run(str(data.get("title") or "الحالة العامة لبرنامج الالتزام"))
+    _set_run_font(run, size=18, bold=True, color=NAVY)
+    run.underline = True
+
+    guide = document.add_paragraph()
+    _rtl_paragraph(guide, WD_ALIGN_PARAGRAPH.RIGHT)
+    _set_run_font(guide.add_run(str(data.get("guide") or "دليل تصنيف الحالة العامة للبرنامج")), size=11, bold=True, color="475569")
+
+    levels = list(data.get("levels") or [])
+    if levels:
+        legend = document.add_table(rows=2, cols=max(len(levels), 1))
+        legend.autofit = True
+        _set_table_rtl(legend)
+        for i, level in enumerate(levels):
+            fill = _hex_color(level.get("color"), "3D7A5A")
+            _write_cell(
+                legend.rows[0].cells[i],
+                str(level.get("label") or ""),
+                fill=fill,
+                bold=True,
+                color="FFFFFF",
+                size=14,
+                align=WD_ALIGN_PARAGRAPH.CENTER,
+            )
+            _write_cell(
+                legend.rows[1].cells[i],
+                str(level.get("text") or ""),
+                fill="F8FAFC",
+                bold=False,
+                color="334155",
+                size=9,
+                align=WD_ALIGN_PARAGRAPH.RIGHT,
+                min_lines=3,
+            )
+
+    overall = data.get("overall") or {}
+    bar = document.add_table(rows=1, cols=2)
+    bar.autofit = True
+    _set_table_rtl(bar)
+    _write_cell(
+        bar.rows[0].cells[0],
+        "الحالة العامة لبرنامج الالتزام:",
+        fill="2A6499",
+        bold=True,
+        color="FFFFFF",
+        size=12,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+    _write_cell(
+        bar.rows[0].cells[1],
+        str(overall.get("label") or "—"),
+        fill=_hex_color(overall.get("color"), "3D7A5A"),
+        bold=True,
+        color="FFFFFF",
+        size=14,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+    )
+
+    caption = document.add_paragraph()
+    _rtl_paragraph(caption, WD_ALIGN_PARAGRAPH.RIGHT)
+    cap_run = caption.add_run("ملخص المتطلبات النظامية التي خضعت لبرنامج الالتزام حسب الادارة او الجهة المعنية")
+    _set_run_font(cap_run, size=10, bold=True, color="334155")
+
+    departments = list(data.get("departments") or [])
+    totals = data.get("totals") or {}
+    table = document.add_table(rows=2 + max(len(departments), 1), cols=5)
+    table.autofit = True
+    _set_table_rtl(table)
+    headers = [
+        ("الادارة او الجهة المعنية", "F1F5F9", "0F172A"),
+        ("عدد المتطلبات النظامية", "1F4E79", "FFFFFF"),
+        ("عدد المتطلبات الملتزم بها", "3D7A5A", "FFFFFF"),
+        ("عدد المتطلبات غير الملتزم بها", "C24141", "FFFFFF"),
+        ("عدد المتطلبات الملتزم بها جزئيا", "C9A227", "1E293B"),
+    ]
+    for i, (label, fill, color) in enumerate(headers):
+        _write_cell(
+            table.rows[0].cells[i],
+            label,
+            fill=fill,
+            bold=True,
+            color=color,
+            size=9,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+        )
+
+    def _count_text(value: Any) -> str:
+        try:
+            n = int(value or 0)
+        except (TypeError, ValueError):
+            n = 0
+        return str(n) if n else ""
+
+    if not departments:
+        _write_cell(
+            table.rows[1].cells[0],
+            "لا توجد متطلبات مطابقة.",
+            fill="FFFFFF",
+            bold=True,
+            color="64748B",
+            size=11,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+        )
+        table.cell(1, 0).merge(table.cell(1, 4))
+        foot_idx = 2
+    else:
+        for ridx, dept in enumerate(departments):
+            row = table.rows[1 + ridx]
+            fill = "F8FAFC" if ridx % 2 else "FFFFFF"
+            values = [
+                (str(dept.get("label") or "—"), fill, "0F172A", WD_ALIGN_PARAGRAPH.RIGHT, True),
+                (_count_text(dept.get("legal_text_count")), fill, "1F4E79", WD_ALIGN_PARAGRAPH.CENTER, True),
+                (_count_text(dept.get("compliant")), fill, "3D7A5A", WD_ALIGN_PARAGRAPH.CENTER, True),
+                (_count_text(dept.get("noncompliant")), fill, "C24141", WD_ALIGN_PARAGRAPH.CENTER, True),
+                (_count_text(dept.get("partial")), fill, "92400E", WD_ALIGN_PARAGRAPH.CENTER, True),
+            ]
+            for i, (text, bg, color, align, bold) in enumerate(values):
+                _write_cell(row.cells[i], text, fill=bg, bold=bold, color=color, size=10, align=align)
+        foot_idx = 1 + len(departments)
+
+    foot = table.rows[foot_idx]
+    foot_vals = [
+        ("الاجمالي", "1F4E79"),
+        (_count_text(totals.get("legal_text_count")), "1F4E79"),
+        (_count_text(totals.get("compliant")), "3D7A5A"),
+        (_count_text(totals.get("noncompliant")), "C24141"),
+        (_count_text(totals.get("partial")), "C9A227"),
+    ]
+    for i, (text, fill) in enumerate(foot_vals):
+        color = "1E293B" if fill == "C9A227" else "FFFFFF"
+        _write_cell(
+            foot.cells[i],
+            text,
+            fill=fill,
+            bold=True,
+            color=color,
+            size=10,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+        )
+
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()

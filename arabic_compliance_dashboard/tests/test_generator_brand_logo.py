@@ -74,6 +74,10 @@ def test_export_snapshot_html_is_self_contained_interactive():
     assert "planStatusWordBtn" in html
     assert "حالة خطط المعالجة" in html
     assert "export-plan-status-docx" in html
+    assert "programStatusToggle" in html
+    assert "programStatusWordBtn" in html
+    assert "الحالة العامة للبرنامج" in html
+    assert "export-program-status-docx" in html
     assert "fileStudioModal" in html
     assert "تنزيل Excel" in html
     assert "initFileColumnStudio" in html

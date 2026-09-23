@@ -49,6 +49,14 @@
         <div class="toolbar">
             <button id="clearFiltersBtn" class="tool-btn" type="button">مسح جميع الفلاتر</button>
             <button id="downloadInteractiveHtmlBtn" class="tool-btn tool-btn-download" type="button" title="حفظ لوحة التحكم كملف HTML تفاعلي يتضمن البيانات والفلاتر والتفاصيل">تنزيل HTML</button>
+            <label class="program-status-launch" for="programStatusToggle" title="فتح تقرير الحالة العامة لبرنامج الالتزام">
+                <input type="checkbox" id="programStatusToggle">
+                <span class="program-status-launch-mark" aria-hidden="true"></span>
+                <span class="program-status-launch-copy">
+                    <span class="program-status-launch-kicker">تقرير تنفيذي</span>
+                    <span class="program-status-launch-title">الحالة العامة للبرنامج</span>
+                </span>
+            </label>
         </div>
 
         <div class="dashboard-body">
@@ -295,6 +303,32 @@
             </div>
             <div id="planStatusKpis" class="plan-status-kpis" hidden></div>
             <div id="planStatusBody" class="plan-status-body"></div>
+        </div>
+    </div>
+
+    <div id="programStatusModal" class="modal-overlay program-status-overlay" role="dialog" aria-modal="true" aria-labelledby="programStatusTitle" style="display:none;z-index:63;">
+        <div class="modal program-status-sheet">
+            <div class="program-status-brand">
+                <img id="programStatusLogo" class="report-brand-logo" alt="شعار الشركة" hidden>
+                <span class="report-brand-mark">إدارة الالتزام</span>
+            </div>
+            <div class="program-status-header">
+                <div class="program-status-heading">
+                    <h3 id="programStatusTitle" class="program-status-title">الحالة العامة لبرنامج الالتزام</h3>
+                    <p id="programStatusGuide" class="program-status-guide">دليل تصنيف الحالة العامة للبرنامج</p>
+                </div>
+                <div class="program-status-actions">
+                    <label class="program-status-search">
+                        <span class="visually-hidden">بحث عن إدارة</span>
+                        <input id="programStatusSearch" type="search" placeholder="بحث عن إدارة…" autocomplete="off">
+                    </label>
+                    <button id="programStatusWordBtn" type="button" class="assessment-word-btn">تنزيل Word</button>
+                    <button id="programStatusClose" type="button" class="modal-close">إغلاق</button>
+                </div>
+            </div>
+            <div id="programStatusLegend" class="program-legend"></div>
+            <div id="programStatusBar" class="program-overall-bar"></div>
+            <div id="programStatusBody" class="program-status-body"></div>
         </div>
     </div>
 

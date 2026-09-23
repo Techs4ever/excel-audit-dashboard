@@ -1082,6 +1082,71 @@ def test_plan_status_docx_contains_headers():
     assert "إدارة التأمين" in xml
 
 
+def test_program_status_report_counts_compliance_by_department():
+    from arabic_compliance_dashboard.engine import (
+        COL_DEPT,
+        COL_LEGAL,
+        PARAM_TO_COL,
+        compute_program_status_report,
+    )
+
+    rows = [
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص أ",
+            "حالة الالتزام بالمتطلبات": "ملتزم",
+        },
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص ب",
+            "حالة الالتزام وفقًا لإدارة الالتزام": "غير ملتزم",
+        },
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص ج",
+            "حالة الالتزام وفقًا لإدارة الالتزام": "ملتزم جزئي",
+        },
+        {
+            COL_DEPT: "إدارة تكنولوجيا المعلومات",
+            COL_LEGAL: "نص د",
+            "حالة الالتزام بالمتطلبات": "ملتزم",
+        },
+    ]
+    selected = {col: [] for col in PARAM_TO_COL.values()}
+    out = compute_program_status_report(rows, selected)
+    by_dept = {d["id"]: d for d in out["departments"]}
+    insurance = by_dept["إدارة التأمين"]
+    assert insurance["legal_text_count"] == 3
+    assert insurance["compliant"] == 1
+    assert insurance["noncompliant"] == 1
+    assert insurance["partial"] == 1
+    assert by_dept["إدارة تكنولوجيا المعلومات"]["compliant"] == 1
+    assert out["overall"]["id"] == "red"
+    assert out["totals"]["compliant"] == 2
+
+
+def test_program_status_docx_contains_headers():
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from arabic_compliance_dashboard.engine import COL_DEPT, COL_LEGAL, PARAM_TO_COL, compute_program_status_report
+    from arabic_compliance_dashboard.word_export import build_program_status_docx
+
+    rows = [
+        {
+            COL_DEPT: "إدارة التأمين",
+            COL_LEGAL: "نص",
+            "حالة الالتزام بالمتطلبات": "ملتزم",
+        }
+    ]
+    payload = compute_program_status_report(rows, {col: [] for col in PARAM_TO_COL.values()})
+    xml = ZipFile(BytesIO(build_program_status_docx(payload))).read("word/document.xml").decode("utf-8")
+    assert "الحالة العامة لبرنامج الالتزام" in xml
+    assert "أخضر" in xml
+    assert "عدد المتطلبات الملتزم بها" in xml
+    assert "إدارة التأمين" in xml
+
+
 def test_legal_text_docx_contains_text_and_fields():
     from io import BytesIO
     from zipfile import ZipFile
