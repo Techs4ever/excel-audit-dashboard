@@ -124,7 +124,7 @@
                 <i class="bi bi-people-fill"></i>
             </a>
             {% endif %}
-            {% if can_delete_dashboards and db.pk in deletable_dashboard_ids %}
+            {% if db.pk in deletable_dashboard_ids %}
             <form method="post" action="{% url 'dashboard_delete' db.pk %}" class="db-card-delete js-super-delete-form"
                   data-dashboard-pk="{{ db.pk }}"
                   data-dashboard-name="{{ db.name|escape }}">
@@ -232,7 +232,7 @@
         return match ? decodeURIComponent(match[1]) : '';
     }
 
-    {% if can_delete_dashboards %}
+    {% if deletable_dashboard_ids %}
     var deleteConfirmTpl = '{{ ui.dl_delete_confirm|escapejs }}';
     document.querySelectorAll('.js-super-delete-form').forEach(function (form) {
         form.addEventListener('submit', function (e) {

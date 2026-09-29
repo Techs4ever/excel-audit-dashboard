@@ -83,6 +83,15 @@
            class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
             <i class="bi bi-box-arrow-up-right"></i> {{ ui.dd_open_new }}
         </a>
+        {% if can_delete_dashboard %}
+        <form method="post" action="{% url 'dashboard_delete' dashboard.pk %}" class="js-dashboard-delete-form"
+              data-dashboard-name="{{ dashboard.name|escape }}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1">
+                <i class="bi bi-trash-fill"></i> {{ ui.dl_delete_btn }}
+            </button>
+        </form>
+        {% endif %}
         {% if can_upload_files %}
         <a href="{{ upload_url }}" class="btn btn-sm btn-primary d-flex align-items-center gap-1">
             <i class="bi bi-plus-lg"></i> {{ ui.dd_new_btn }}
@@ -309,6 +318,40 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if can_delete_dashboard %}
+<script>
+(function () {
+    function getCsrfToken() {
+        var match = document.cookie.match(/csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+    var deleteConfirmTpl = '{{ ui.dl_delete_confirm|escapejs }}';
+    document.querySelectorAll('.js-dashboard-delete-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var name = form.dataset.dashboardName || '';
+            if (!confirm(deleteConfirmTpl.replace('{name}', name))) return;
+            var btn = form.querySelector('button[type="submit"]');
+            if (btn) btn.disabled = true;
+            fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCsrfToken(),
+                },
+                body: new FormData(form),
+            }).then(function (res) {
+                if (!res.ok) throw new Error('delete failed');
+                window.location.href = '{% url "dashboard_list" %}';
+            }).catch(function () {
+                if (btn) btn.disabled = false;
+                form.submit();
+            });
+        });
+    });
+})();
+</script>
+{% endif %}
 <script src="{% static 'js/attachment_multi_select.js' %}"></script>
 <script>
 (function () {
