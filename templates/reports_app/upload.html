@@ -217,7 +217,7 @@
                 <!-- ── Optional attachments (PPTX/PDF) ── -->
                 <div id="attachmentSections">
                 {% for slot in attachment_slots %}
-                <div class="form-section js-attachment-slot" data-kind="{{ slot.kind }}" data-field-prefix="{{ slot.field_prefix }}">
+                <div class="form-section js-attachment-slot" data-kind="{{ slot.kind }}" data-field-prefix="{{ slot.field_prefix }}" data-templates="{{ slot.template_codes }}">
                     <details id="{{ slot.details_id }}"{% if slot.has_existing %} open{% endif %}>
                         <summary>
                             <i class="bi {{ slot.summary_icon }} me-1"></i>
@@ -463,7 +463,11 @@
         var code = selected.value;
         var isAr = code === 'CD';
         if (arHint) arHint.style.display = isAr ? 'block' : 'none';
-        if (attachmentWrap) attachmentWrap.style.display = isAr ? 'none' : '';
+        if (attachmentWrap) attachmentWrap.style.display = '';
+        document.querySelectorAll('#attachmentSections .js-attachment-slot').forEach(function (el) {
+            var allowed = (el.getAttribute('data-templates') || 'IAD').split(',');
+            el.style.display = allowed.indexOf(code) >= 0 ? '' : 'none';
+        });
         if (fileInput) {
             fileInput.accept = isAr ? '.xlsx,.xls,.xlsm' : '.xlsx,.xls,.xlsm,.csv';
         }
@@ -549,4 +553,4 @@ function onAttachmentFile(input, kind, fieldPrefix) {
     }
 }
 </script>
-{% endblock %}
+{% endblock %} 

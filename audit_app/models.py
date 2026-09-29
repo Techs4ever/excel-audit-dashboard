@@ -29,6 +29,9 @@ ATTACHMENT_KIND_CHOICES = [
     ("specialAssignment", _("Special Assignment Report")),
     ("accApprovedMoM", _("ACC Aproved MoM")),
     ("internalAuditDetailed", _("Internal Audit Detailed Reports")),
+    ("legislation", _("التشريعات و الانظمة و القوانين")),
+    ("complianceDetailed", _("تقرير ادارة الالتزام التفصيلي")),
+    ("complianceQuarterly", _("تقرير ادارة الالتزام الربعي")),
 ]
 
 ATTACHMENT_KIND_CODES = [code for code, _ in ATTACHMENT_KIND_CHOICES]

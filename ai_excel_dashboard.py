@@ -7739,27 +7739,49 @@ def generate_finance_report(
           return false;
         }}
       }}
+      let planRowsClearedFlag = false;
+      let userEditsSaveWaiters = [];
+      function planTableIsRendered() {{
+        return !!(planBodyRows && planBodyRows.querySelector("tr"));
+      }}
+      function obsTrackingTableIsRendered() {{
+        return !!(obsTrackingBodyRows && obsTrackingBodyRows.querySelector("tr"));
+      }}
+      function notifyUserEditsSaveWaiters(ok) {{
+        const waiters = userEditsSaveWaiters.splice(0);
+        waiters.forEach(function (fn) {{
+          try {{ fn(ok); }} catch (_w) {{}}
+        }});
+      }}
       function saveUserEditsToServer(opts) {{
         opts = opts || {{}};
         const successMsg = opts.successMsg || (typeof ui !== "undefined" && ui && ui.planSaveSuccess) || "Changes saved";
+        const silent = !!opts.silent;
         if (!canSaveUserEditsToServer()) {{
-          showPlanSaveToast((typeof ui !== "undefined" && ui && ui.planSaveFailed) || "Could not save changes", true);
+          if (!silent) showPlanSaveToast((typeof ui !== "undefined" && ui && ui.planSaveFailed) || "Could not save changes", true);
           return Promise.resolve(false);
         }}
         const url = resolveUserEditsSaveUrl();
         if (userEditsSaveInFlight) {{
           userEditsSaveQueued = true;
-          return Promise.resolve(false);
+          return new Promise(function (resolve) {{
+            userEditsSaveWaiters.push(resolve);
+          }});
         }}
         userEditsSaveInFlight = true;
         try {{ capturePlanDraftRows(); }} catch (_cap) {{}}
         try {{ captureObsTrackingDraftRows(); }} catch (_capOt) {{}}
+        const planCleared = !!planRowsClearedFlag;
+        if (planCleared) planRowsClearedFlag = false;
         const payload = {{
           v: 1,
           planRows: planDraftRows || [],
           planCellBg: planCellBgHex || [],
+          planTouched: planCleared || planTableIsRendered(),
+          planCleared: planCleared,
           reviewsNote: snapshotReviewsForExport(),
           obsTrackingRows: obsTrackingDraftRows || [],
+          obsTrackingTouched: obsTrackingTableIsRendered(),
         }};
         return fetch(url, {{
           method: "POST",
@@ -7769,35 +7791,62 @@ def generate_finance_report(
             "X-Requested-With": "XMLHttpRequest",
           }},
           credentials: "same-origin",
+          keepalive: !!opts.keepalive,
           body: JSON.stringify(payload),
         }})
           .then(function (resp) {{
             if (!resp.ok) {{
-              showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              if (!silent) showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
               return false;
             }}
             return resp.json().then(function (j) {{
               const ok = !!(j && j.ok);
-              if (ok) showPlanSaveToast(successMsg, false);
-              else showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              if (!silent) {{
+                if (ok) showPlanSaveToast(successMsg, false);
+                else showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              }}
               return ok;
             }}).catch(function () {{
-              showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              if (!silent) showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
               return false;
             }});
           }})
           .catch(function () {{
-            showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+            if (!silent) showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
             return false;
           }})
           .finally(function () {{
             userEditsSaveInFlight = false;
             if (userEditsSaveQueued) {{
               userEditsSaveQueued = false;
-              scheduleSaveUserEditsToServer(120);
+              const queuedOpts = opts || {{}};
+              saveUserEditsToServer(queuedOpts).then(function (ok) {{
+                notifyUserEditsSaveWaiters(ok);
+              }}, function () {{
+                notifyUserEditsSaveWaiters(false);
+              }});
+            }} else {{
+              notifyUserEditsSaveWaiters(true);
             }}
           }});
       }}
+      window.__aiExcelSaveUserEditsNow = function () {{
+        if (userEditsSaveTimer) {{
+          clearTimeout(userEditsSaveTimer);
+          userEditsSaveTimer = null;
+        }}
+        try {{ capturePlanDraftRows(); }} catch (_capNow) {{}}
+        try {{ captureObsTrackingDraftRows(); }} catch (_capNowOt) {{}}
+        try {{
+          writeAuditPersistScript(
+            planDraftRows || [],
+            planCellBgHex || [],
+            snapshotReviewsForExport(),
+            obsTrackingDraftRows || []
+          );
+        }} catch (_wNow) {{}}
+        return saveUserEditsToServer({{ silent: true, keepalive: true }});
+      }};
       function scheduleSaveUserEditsToServer(delayMs) {{
         if (!canSaveUserEditsToServer()) return;
         if (userEditsSaveTimer) clearTimeout(userEditsSaveTimer);
@@ -7824,6 +7873,7 @@ def generate_finance_report(
         window.__aiExcelFlushUserEditsForExport = function () {{
           writeAuditPersistScript([], [], snapshotReviewsForExport(), []);
         }};
+        window.__aiExcelSaveUserEditsNow = function () {{ return Promise.resolve(false); }};
         window.__aiExcelResetAuditChoices = function () {{}};
         return;
       }}
@@ -9532,8 +9582,10 @@ def generate_finance_report(
         }}
       }}
       function capturePlanDraftRows() {{
-        if (!planBodyRows) return;
+        if (!planBodyRows) return planDraftRows;
         const trs = Array.from(planBodyRows.querySelectorAll("tr"));
+        // Table not opened yet — keep hydrated rows (do not wipe on the other panel's save).
+        if (!trs.length) return planDraftRows;
         const out = [];
         trs.forEach(function (tr) {{
           const tds = Array.from(tr.querySelectorAll("td"));
@@ -9541,6 +9593,7 @@ def generate_finance_report(
           out.push(tds.slice(0, 7).map(function (td) {{ return String(td.textContent || "").trim(); }}));
         }});
         planDraftRows = out;
+        return planDraftRows;
       }}
       function getPlanDraftRows() {{
         return (planDraftRows && planDraftRows.length) ? planDraftRows : null;
@@ -10085,6 +10138,7 @@ def generate_finance_report(
         planCellBgHex = [];
         ensurePlanCellMatrix(minPlanRows);
         planSelectedCell = null;
+        planRowsClearedFlag = true;
         renderPlanStatusTable();
         try {{ persistAuditUserEdits(); }} catch (_w) {{}}
       }}
@@ -10200,12 +10254,7 @@ def generate_finance_report(
         }}
         const trs = obsTrackingBodyRows.querySelectorAll("tr");
         // Panel not rendered yet — keep hydrated/in-memory draft (do not wipe on plan save).
-        if (!trs.length) {{
-          if (!Array.isArray(obsTrackingDraftRows) || obsTrackingDraftRows.length < 6) {{
-            ensureObsTrackingDraftRows();
-          }}
-          return obsTrackingDraftRows;
-        }}
+        if (!trs.length) return obsTrackingDraftRows;
         const periods = obsTrackingPeriodLabels();
         const rows = [];
         for (let i = 0; i < 6; i++) {{

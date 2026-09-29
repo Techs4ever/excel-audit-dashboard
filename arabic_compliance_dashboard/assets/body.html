@@ -133,6 +133,11 @@
                     <input type="checkbox" id="compliancePlanToggle">
                     حالة خطة الالتزام
                 </label>
+                <label class="inline-check audit">
+                    <input type="checkbox" id="complianceQuarterlyToggle">
+                    تقرير متابعة حالة الالتزام الربعي
+                </label>
+                <span id="complianceAttachmentToggles" class="compliance-attachment-toggles"></span>
                 <label class="inline-check">
                     <input type="checkbox" id="finalStatusToggle">
                     تقرير تتبع حالة الالتزام السنوي
@@ -337,7 +342,8 @@
             <div class="modal-header" style="background:#1e3a5f; border-bottom:1px solid #0f2744;">
                 <h3 class="modal-title" style="font-size:20px;">حالة خطة الالتزام</h3>
                 <div class="modal-toolbar">
-                    <button id="compliancePlanSaveHtmlBtn" type="button" class="modal-close" style="background:#2a6499;color:#fff;border-color:#2a6499;">حفظ HTML</button>
+                    <button id="compliancePlanSaveHtmlBtn" type="button" class="modal-close" style="background:#2a6499;color:#fff;border-color:#2a6499;">حفظ</button>
+                    <span id="compliancePlanSaveStatus" class="compliance-save-status"></span>
                     <button id="compliancePlanModalClose" type="button" class="modal-close">إغلاق</button>
                 </div>
             </div>
@@ -353,6 +359,47 @@
                     <button id="compliancePlanClearColorBtn" class="tool-btn" type="button">إزالة اللون</button>
                 </div>
                 <div id="compliancePlanEditor" class="aging-matrix-wrap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="complianceQuarterlyModal" class="modal-overlay" role="dialog" aria-modal="true" style="z-index: 66;">
+        <div class="modal modal-wide">
+            <div class="modal-header" style="background:#1e3a5f; border-bottom:1px solid #0f2744;">
+                <h3 class="modal-title" style="font-size:20px;">تقرير متابعة حالة الالتزام الربعي</h3>
+                <div class="modal-toolbar">
+                    <button id="complianceQuarterlySaveBtn" type="button" class="modal-close" style="background:#2a6499;color:#fff;border-color:#2a6499;">حفظ</button>
+                    <span id="complianceQuarterlySaveStatus" class="compliance-save-status"></span>
+                    <button id="complianceQuarterlyModalClose" type="button" class="modal-close">إغلاق</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="control-group" style="margin-bottom:10px;">
+                    <label for="complianceQuarterlyFileInput">رفع ملف إكسل</label>
+                    <input id="complianceQuarterlyFileInput" type="file" accept=".xlsx,.xls" />
+                </div>
+                <div id="complianceQuarterlyEditor" class="aging-matrix-wrap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="complianceAttachmentModal" class="modal-overlay" role="dialog" aria-modal="true" style="z-index: 67;">
+        <div class="modal modal-wide">
+            <div class="modal-header" style="background:#1e3a5f; border-bottom:1px solid #0f2744;">
+                <h3 id="complianceAttachmentTitle" class="modal-title" style="font-size:20px;">مرفق</h3>
+                <div class="modal-toolbar">
+                    <button id="complianceAttachmentDownloadBtn" type="button" class="modal-close">تنزيل</button>
+                    <button id="complianceAttachmentModalClose" type="button" class="modal-close">إغلاق</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="complianceAttachmentPicker" class="compliance-attachment-picker"></div>
+                <div id="complianceAttachmentNav" class="compliance-attachment-nav" hidden>
+                    <button id="complianceAttachmentPrev" type="button" class="tool-btn">السابق</button>
+                    <span id="complianceAttachmentSlideStatus"></span>
+                    <button id="complianceAttachmentNext" type="button" class="tool-btn">التالي</button>
+                </div>
+                <div id="complianceAttachmentHost" class="compliance-attachment-host"></div>
             </div>
         </div>
     </div>

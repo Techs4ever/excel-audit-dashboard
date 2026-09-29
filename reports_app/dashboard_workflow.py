@@ -710,10 +710,16 @@ def get_dashboard_viewer_attachment_map(dashboard: Dashboard) -> dict[int, list[
 def normalize_viewer_attachment_kinds(
     kinds: list[str] | None,
     company: Company | None,
+    template_type: str | None = None,
 ) -> list[str]:
-    """Keep only valid, company-enabled attachment kinds (stable order)."""
+    """Keep only valid, company-enabled kinds for this dashboard template."""
+    from reports_app.services.report_generation import attachment_specs_for_template
+
     enabled = get_enabled_attachment_kinds(company)
-    valid = set(ATTACHMENT_KIND_CODES) & enabled
+    template_kinds = {
+        spec["kind"] for spec in attachment_specs_for_template(template_type)
+    }
+    valid = set(ATTACHMENT_KIND_CODES) & enabled & template_kinds
     seen: set[str] = set()
     out: list[str] = []
     for kind in kinds or []:
@@ -759,8 +765,13 @@ def user_allowed_attachment_kinds(
         return None
     if not isinstance(grant, list):
         return set()
+    from reports_app.services.report_generation import attachment_specs_for_template
+
     enabled = get_enabled_attachment_kinds(active)
-    return {str(k) for k in grant if str(k) in enabled}
+    template_kinds = {
+        spec["kind"] for spec in attachment_specs_for_template(dashboard.template_type)
+    }
+    return {str(k) for k in grant if str(k) in enabled and str(k) in template_kinds}
 
 
 @transaction.atomic
@@ -816,6 +827,7 @@ def set_dashboard_viewers(
                     allowed_attachment_kinds=normalize_viewer_attachment_kinds(
                         kinds_map.get(uid, []),
                         company,
+                        dashboard.template_type,
                     ),
                 )
                 for uid in to_add
@@ -826,7 +838,9 @@ def set_dashboard_viewers(
     for uid in to_keep:
         if uid not in kinds_map:
             continue
-        normalized = normalize_viewer_attachment_kinds(kinds_map[uid], company)
+        normalized = normalize_viewer_attachment_kinds(
+            kinds_map[uid], company, dashboard.template_type
+        )
         DashboardViewer.objects.filter(dashboard=dashboard, user_id=uid).update(
             allowed_attachment_kinds=normalized,
         )

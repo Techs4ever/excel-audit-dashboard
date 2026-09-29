@@ -7,6 +7,10 @@ from typing import Any
 
 import pandas as pd
 
+from ai_excel_dashboard import (
+    _CAN_SAVE_USER_EDITS_MARKER,
+    _USER_EDITS_SAVE_MARKER,
+)
 from site_robots import ROBOTS_META_HTML
 
 from .engine import BLANK, COL_LEGAL, build_snapshot_pack, legal_details_from_rows, row_value
@@ -52,6 +56,7 @@ def generate_ar_compliance_report(
     embed_snapshot: bool = False,
     brand_logos: dict[str, str] | None = None,
     default_brand_code: str | None = None,
+    attachments: dict[str, Any] | None = None,
 ) -> str:
     """Return full HTML document for iframe serve or export."""
     normalized = normalize_dataframe(df)
@@ -105,6 +110,11 @@ def generate_ar_compliance_report(
         },
         "compliance-plan-seed",
     )
+    extra_scripts += _json_script_tag({"rows": []}, "compliance-quarterly-seed")
+    extra_scripts += _json_script_tag(
+        attachments if isinstance(attachments, dict) else {"kinds": []},
+        "compliance-attachments",
+    )
 
     return f"""<!doctype html>
 <html lang="ar" dir="rtl">
@@ -112,6 +122,8 @@ def generate_ar_compliance_report(
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 {ROBOTS_META_HTML}    <title>نتائج التحليل</title>
+    <script>{_USER_EDITS_SAVE_MARKER}</script>
+    <script>{_CAN_SAVE_USER_EDITS_MARKER}</script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

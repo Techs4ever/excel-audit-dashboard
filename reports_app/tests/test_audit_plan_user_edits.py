@@ -13,8 +13,12 @@ from reports_app.dashboard_workflow import (
     can_user_save_dashboard_user_edits,
 )
 from reports_app.services.report_generation import (
+    attachment_specs_for_template,
+    build_attachment_form_slots,
+    inject_compliance_editor_seeds,
     inject_dashboard_serve_context,
     inject_user_edits_persist_script,
+    merge_preserved_user_edits,
     validate_dashboard_user_edits_payload,
 )
 
@@ -115,6 +119,22 @@ class AuditPlanUserEditsTests(TestCase):
         self.assertIn("__AI_EXCEL_CAN_SAVE_USER_EDITS__=true", out)
         self.assertIn('"planRows":[["P","A","","","","",""]]', out)
 
+    def test_compliance_page_that_reads_save_url_still_receives_it(self):
+        html = (
+            "<html><head></head><body><script>"
+            "const url = window.__AI_EXCEL_USER_EDITS_SAVE_URL__ || '';"
+            "</script></body></html>"
+        )
+        out = inject_dashboard_serve_context(
+            html,
+            mail_url="http://test/api/mail",
+            plan_url="http://test/api/plan",
+            user_edits_save_url="http://test/save",
+            can_save_user_edits=True,
+        )
+        self.assertIn("window.__AI_EXCEL_USER_EDITS_SAVE_URL__=\"http://test/save\"", out)
+        self.assertIn("window.__AI_EXCEL_CAN_SAVE_USER_EDITS__=true", out)
+
     def test_can_user_save_dashboard_user_edits_until_publish(self):
         self.assertTrue(
             can_user_save_dashboard_user_edits(self.reviewer, self.dashboard, self.company)
@@ -152,6 +172,90 @@ class AuditPlanUserEditsTests(TestCase):
         self.assertEqual(stored["planRows"][0][0], "Project X")
         self.assertEqual(stored["reviewsNote"], "saved")
 
+    def test_blank_plan_save_does_not_erase_stored_rows(self):
+        self.dashboard.user_edits_json = json.dumps(
+            {
+                "v": 1,
+                "planRows": [["Project X", "Finance", "Bob", "Open", "10%", "20%", "30%"]],
+                "planCellBg": [],
+                "reviewsNote": "keep",
+                "obsTrackingRows": [["Opening Balance", "4", "", "", "4"], ["Q1", "4", "2", "1", "5"]],
+            }
+        )
+        self.dashboard.save(update_fields=["user_edits_json"])
+        client = Client()
+        client.force_login(self.reviewer)
+        session = client.session
+        session["active_company_id"] = self.company.pk
+        session.save()
+        resp = client.post(
+            reverse("dashboard_user_edits", args=[self.dashboard.pk]),
+            data=json.dumps(
+                {
+                    "v": 1,
+                    "planRows": [["", "", "", "", "", "", ""]],
+                    "planCellBg": [],
+                    "reviewsNote": "keep",
+                    "obsTrackingRows": [["Opening Balance", "0", "", "", "0"]],
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.dashboard.refresh_from_db()
+        stored = json.loads(self.dashboard.user_edits_json)
+        self.assertEqual(stored["planRows"][0][0], "Project X")
+        self.assertEqual(stored["obsTrackingRows"][1][2], "2")
+
+    def test_explicit_plan_clear_replaces_stored_rows(self):
+        existing = {
+            "v": 1,
+            "planRows": [["Project X", "Finance", "", "", "", "", ""]],
+            "planCellBg": [["#ff0000", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff"]],
+            "reviewsNote": "",
+            "obsTrackingRows": [],
+        }
+        normalized = validate_dashboard_user_edits_payload(
+            {
+                "v": 1,
+                "planRows": [["", "", "", "", "", "", ""]],
+                "planCellBg": [],
+                "reviewsNote": "",
+                "planCleared": True,
+                "planTouched": True,
+            }
+        )
+        merged = merge_preserved_user_edits(json.dumps(existing), {"planCleared": True, "planTouched": True}, normalized)
+        self.assertEqual(merged["planRows"][0][0], "")
+
+    def test_untouched_plan_flag_keeps_stored_rows(self):
+        existing = {
+            "v": 1,
+            "planRows": [["Project X", "Finance", "", "", "", "", ""]],
+            "planCellBg": [],
+            "reviewsNote": "n",
+            "obsTrackingRows": [["Q1", "1", "3", "0", "4"]],
+        }
+        normalized = validate_dashboard_user_edits_payload(
+            {
+                "v": 1,
+                "planRows": [["Changed", "", "", "", "", "", ""]],
+                "planCellBg": [],
+                "reviewsNote": "n",
+                "obsTrackingRows": [["Q1", "9", "9", "9", "9"]],
+                "planTouched": False,
+                "obsTrackingTouched": False,
+            }
+        )
+        merged = merge_preserved_user_edits(
+            json.dumps(existing),
+            {"planTouched": False, "obsTrackingTouched": False},
+            normalized,
+        )
+        self.assertEqual(merged["planRows"][0][0], "Project X")
+        self.assertEqual(merged["obsTrackingRows"][0][2], "3")
+
     def test_can_user_manage_review_attachments_only_under_review(self):
         self.dashboard.status = DashboardStatus.UNDER_REVIEW
         self.dashboard.save(update_fields=["status"])
@@ -162,6 +266,101 @@ class AuditPlanUserEditsTests(TestCase):
         self.dashboard.save(update_fields=["status"])
         self.assertFalse(
             can_user_manage_review_attachments(self.reviewer, self.dashboard, self.company)
+        )
+
+    def test_compliance_save_does_not_erase_audit_plan_rows(self):
+        existing = {
+            "v": 1,
+            "planRows": [["Project X", "Finance", "", "", "", "", ""]],
+            "planCellBg": [],
+            "reviewsNote": "keep-note",
+            "obsTrackingRows": [["Q1", "1", "3", "0", "4"]],
+            "compliancePlan": {"sheetName": "old", "headers": ["A"], "rows": [["1"]], "styles": {}},
+            "complianceQuarterly": {"rows": [["الربع الاول", "5", "1", "0", "0", "6"]]},
+        }
+        raw = {
+            "v": 1,
+            "planRows": [],
+            "planTouched": False,
+            "obsTrackingTouched": False,
+            "reviewsTouched": False,
+            "compliancePlanTouched": True,
+            "complianceQuarterlyTouched": False,
+            "compliancePlan": {
+                "sheetName": "خطة",
+                "headers": ["البند"],
+                "rows": [["التزام"]],
+                "styles": {"0,0": "#fff59d"},
+            },
+            "complianceQuarterly": {"rows": []},
+        }
+        merged = merge_preserved_user_edits(
+            json.dumps(existing),
+            raw,
+            validate_dashboard_user_edits_payload(raw),
+        )
+        self.assertEqual(merged["planRows"][0][0], "Project X")
+        self.assertEqual(merged["obsTrackingRows"][0][2], "3")
+        self.assertEqual(merged["reviewsNote"], "keep-note")
+        self.assertEqual(merged["compliancePlan"]["rows"][0][0], "التزام")
+        self.assertEqual(merged["complianceQuarterly"]["rows"][0][1], "5")
+
+    def test_audit_plan_save_does_not_erase_compliance_tables(self):
+        existing = {
+            "v": 1,
+            "planRows": [],
+            "planCellBg": [],
+            "reviewsNote": "",
+            "obsTrackingRows": [],
+            "compliancePlan": {"sheetName": "خطة", "headers": ["البند"], "rows": [["التزام"]], "styles": {}},
+            "complianceQuarterly": {"rows": [["الربع الاول", "8", "2", "1", "0", "11"]]},
+        }
+        raw = {
+            "v": 1,
+            "planRows": [["New plan", "", "", "", "", "", ""]],
+            "planTouched": True,
+            "obsTrackingRows": [],
+        }
+        merged = merge_preserved_user_edits(
+            json.dumps(existing),
+            raw,
+            validate_dashboard_user_edits_payload(raw),
+        )
+        self.assertEqual(merged["planRows"][0][0], "New plan")
+        self.assertEqual(merged["compliancePlan"]["rows"][0][0], "التزام")
+        self.assertEqual(merged["complianceQuarterly"]["rows"][0][1], "8")
+
+    def test_compliance_seeds_are_injected_from_user_edits(self):
+        html = (
+            '<script type="application/json" id="compliance-plan-seed">{}</script>'
+            '<script type="application/json" id="compliance-quarterly-seed">{}</script>'
+        )
+        stored = json.dumps(
+            {
+                "compliancePlan": {"sheetName": "S", "headers": ["H"], "rows": [["v"]], "styles": {}},
+                "complianceQuarterly": {"rows": [["الربع الاول", "1", "0", "0", "0", "1"]]},
+            },
+            ensure_ascii=False,
+        )
+        out = inject_compliance_editor_seeds(html, stored)
+        self.assertIn("S", out)
+        self.assertIn("الربع الاول", out)
+
+    def test_attachment_slots_follow_dashboard_template(self):
+        iad = [spec["kind"] for spec in attachment_specs_for_template("IAD")]
+        cd = [spec["kind"] for spec in attachment_specs_for_template("CD")]
+        self.assertIn("deck", iad)
+        self.assertNotIn("legislation", iad)
+        self.assertIn("legislation", cd)
+        self.assertIn("complianceDetailed", cd)
+        self.assertIn("complianceQuarterly", cd)
+        self.assertNotIn("deck", cd)
+        slots = build_attachment_form_slots(
+            None, locale="ar", company=self.company, template_type="CD"
+        )
+        kinds = {slot["kind"] for slot in slots}
+        self.assertEqual(
+            kinds, {"legislation", "complianceDetailed", "complianceQuarterly"}
         )
 
 

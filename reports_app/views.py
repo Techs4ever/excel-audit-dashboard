@@ -25,6 +25,7 @@ if _BASE_DIR not in sys.path:
 from web_strings import get_ui  # noqa: E402
 from dashboard_locale import normalize_locale  # noqa: E402
 
+from audit_app.dashboard_template_codes import TEMPLATE_CODE_IAD
 from audit_app.company_access import (
     get_enabled_attachment_kinds,
     template_codes_with_perm,
@@ -72,12 +73,14 @@ from .dashboard_workflow import (
 from reports_app.workflow_engine import company_uses_workflow_v2
 from .services.report_generation import (
     ATTACHMENT_SPECS,
+    attachment_specs_for_template,
     build_attachment_form_slots,
     version_payload,
     generate_from_db_data,
     inject_dashboard_serve_context,
     report_locale_for_dashboard,
     store_upload_to_db,
+    merge_preserved_user_edits,
     update_dashboard_review_attachments,
     validate_dashboard_user_edits_payload,
     _existing_excel_names,
@@ -236,6 +239,23 @@ def _upload_form_from_post(post) -> dict:
     }
 
 
+def _upload_attachment_slots(dashboard, *, locale: str, company, template_codes: list[str]) -> list:
+    """Slots for the dashboard being edited, or every template offered on a new upload."""
+    if dashboard is not None:
+        return build_attachment_form_slots(dashboard, locale=locale, company=company)
+    slots: list = []
+    for code in template_codes or [TEMPLATE_CODE_IAD]:
+        slots.extend(
+            build_attachment_form_slots(
+                None,
+                locale=locale,
+                company=company,
+                template_type=code,
+            )
+        )
+    return slots
+
+
 def _upload_page_context(request, form: dict | None = None) -> dict:
     if form is None:
         form = {}
@@ -302,10 +322,12 @@ def _upload_page_context(request, form: dict | None = None) -> dict:
         "is_edit_mode": resubmit_dashboard is not None,
         "existing_excel_names": existing_excel_names,
         "has_existing_excel": has_existing_excel,
-        "attachment_slots": build_attachment_form_slots(
+        "attachment_slots": _upload_attachment_slots(
             resubmit_dashboard,
             locale=lang,
             company=_active_company(request),
+            template_codes=[item.code for item in active_templates]
+            or [selected_template or TEMPLATE_CODE_IAD],
         ),
         "form": form,
         "selected_icon": selected_icon,
@@ -578,7 +600,6 @@ def dashboard_list(request):
     }
     undo_deleted_pk = None
     undo_deleted_name = ""
-    list_heading = ui.get(f"template_nav_{requested_template}") if requested_template else ""
     return render(
         request,
         "reports_app/dashboard_list.html",
@@ -596,7 +617,6 @@ def dashboard_list(request):
             "undo_deleted_pk": undo_deleted_pk,
             "undo_deleted_name": undo_deleted_name,
             "list_template": requested_template,
-            "list_heading": list_heading,
             "can_upload_files": has_upload_perm(
                 request.user, company, requested_template or None
             ),
@@ -710,6 +730,11 @@ def dashboard_user_edits(request, pk: int):
         raw = request.body.decode("utf-8") if request.body else ""
         data = json.loads(raw or "{}")
         payload = validate_dashboard_user_edits_payload(data)
+        payload = merge_preserved_user_edits(
+            dashboard.user_edits_json or "",
+            data,
+            payload,
+        )
     except (json.JSONDecodeError, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "invalid_payload"}, status=400)
 
@@ -1043,7 +1068,7 @@ def _viewer_assignment_members_context(dashboard: Dashboard, ui: dict) -> tuple[
             )
     enabled = get_enabled_attachment_kinds(dashboard.company)
     kind_options: list[dict] = []
-    for spec in ATTACHMENT_SPECS:
+    for spec in attachment_specs_for_template(dashboard.template_type):
         if spec["kind"] not in enabled:
             continue
         label = ui.get(spec["ui_label"], spec["kind"])
@@ -1270,4 +1295,4 @@ def favicon(request):
     if icon_path.exists():
         return FileResponse(open(icon_path, "rb"), content_type="image/x-icon")
     return HttpResponse(status=204)
- 
+    

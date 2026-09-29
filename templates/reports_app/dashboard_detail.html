@@ -359,9 +359,34 @@
 
     var submitForm = document.getElementById('submitDetailForm');
     if (submitForm) {
-        submitForm.addEventListener('submit', function () {
+        submitForm.addEventListener('submit', function (ev) {
+            if (submitForm.dataset.flushing === '1') return;
             var btn = submitForm.querySelector('button[type="submit"]');
             if (btn) btn.disabled = true;
+            var frame = document.getElementById('dashFrame');
+            var flush = null;
+            try {
+                flush = frame && frame.contentWindow && frame.contentWindow.__aiExcelSaveUserEditsNow;
+            } catch (err) {
+                flush = null;
+            }
+            if (typeof flush !== 'function') return;
+            ev.preventDefault();
+            var done = Promise.resolve();
+            try {
+                done = Promise.resolve(flush());
+            } catch (err2) {
+                done = Promise.resolve();
+            }
+            var finish = function () {
+                submitForm.dataset.flushing = '1';
+                if (btn) btn.disabled = false;
+                submitForm.submit();
+            };
+            Promise.race([
+                done.catch(function () {}),
+                new Promise(function (resolve) { setTimeout(resolve, 2500); })
+            ]).then(finish);
         });
     }
 

@@ -23,6 +23,7 @@ from ai_excel_dashboard import (
     REPORT_VERSION,
     build_multi_dashboard_shell,
     content_fingerprint,
+    build_embedded_slide_deck_bundle,
     generate_finance_report,
     workbook_dashboard_tab_title,
 )
@@ -132,7 +133,61 @@ ATTACHMENT_SPECS: list[dict[str, str]] = [
         "zone_icon": "bi-file-earmark-text",
         "details_id": "internalAuditDetailedDeckDetails",
     },
+    {
+        "kind": "legislation",
+        "source_key": "legislation_decks",
+        "field_prefix": "legislation_deck",
+        "file_stem_prefix": "legislation_deck",
+        "ui_label": "upload_legislation_label",
+        "ui_hint": "upload_legislation_hint",
+        "ui_drop": "upload_legislation_drop",
+        "summary_icon": "bi-bank",
+        "zone_icon": "bi-file-earmark-text",
+        "details_id": "legislationDeckDetails",
+        "templates": ("CD",),
+    },
+    {
+        "kind": "complianceDetailed",
+        "source_key": "compliance_detailed_decks",
+        "field_prefix": "compliance_detailed_deck",
+        "file_stem_prefix": "compliance_detailed_deck",
+        "ui_label": "upload_compliance_detailed_label",
+        "ui_hint": "upload_compliance_detailed_hint",
+        "ui_drop": "upload_compliance_detailed_drop",
+        "summary_icon": "bi-file-earmark-richtext",
+        "zone_icon": "bi-file-earmark-text",
+        "details_id": "complianceDetailedDeckDetails",
+        "templates": ("CD",),
+    },
+    {
+        "kind": "complianceQuarterly",
+        "source_key": "compliance_quarterly_decks",
+        "field_prefix": "compliance_quarterly_deck",
+        "file_stem_prefix": "compliance_quarterly_deck",
+        "ui_label": "upload_compliance_quarterly_label",
+        "ui_hint": "upload_compliance_quarterly_hint",
+        "ui_drop": "upload_compliance_quarterly_drop",
+        "summary_icon": "bi-calendar3",
+        "zone_icon": "bi-file-earmark-bar-graph",
+        "details_id": "complianceQuarterlyDeckDetails",
+        "templates": ("CD",),
+    },
 ]
+
+
+def attachment_specs_for_template(template_type: str | None) -> list[dict[str, str]]:
+    """Attachment slots for one dashboard template. Unscoped kinds stay on Internal Audit."""
+    from audit_app.dashboard_template_codes import TEMPLATE_CODE_CD, TEMPLATE_CODE_IAD
+
+    code = template_type or TEMPLATE_CODE_IAD
+    if code not in (TEMPLATE_CODE_CD, TEMPLATE_CODE_IAD):
+        code = TEMPLATE_CODE_IAD
+    specs: list[dict[str, str]] = []
+    for spec in ATTACHMENT_SPECS:
+        allowed = spec.get("templates") or (TEMPLATE_CODE_IAD,)
+        if code in allowed:
+            specs.append(spec)
+    return specs
 
 ATTACHMENT_MAX_FILES = 20  # hard ceiling; per-kind limits come from company settings
 DEFAULT_ATTACHMENT_MAX_FILES = 4
@@ -284,6 +339,7 @@ def _resubmit_update_metadata_and_attachments(
         existing_source=existing_source,
         is_resubmit=True,
         company=active_company,
+        template_type=template_type,
     )
     excel_names = _existing_excel_names(resubmit_dashboard)
     source_files_info = dict(existing_source)
@@ -369,6 +425,66 @@ def _inject_before_head_close(html_out: str, snippet: str) -> str:
     return snippet + html_out
 
 
+def _replace_json_script(html_out: str, element_id: str, data: dict) -> str:
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
+    tag = f'<script type="application/json" id="{element_id}">{payload}</script>'
+    pattern = re.compile(
+        rf'<script[^>]*id=["\']{re.escape(element_id)}["\'][^>]*>[\s\S]*?</script>',
+        re.IGNORECASE,
+    )
+    if pattern.search(html_out):
+        return pattern.sub(tag, html_out, count=1)
+    return html_out
+
+
+def inject_compliance_editor_seeds(html_out: str, user_edits_json: str) -> str:
+    """Fill compliance table seeds from the stored user-edits JSON."""
+    try:
+        parsed = json.loads(user_edits_json or "")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return html_out
+    if not isinstance(parsed, dict):
+        return html_out
+    html_out = _replace_json_script(
+        html_out,
+        "compliance-plan-seed",
+        parsed.get("compliancePlan") if isinstance(parsed.get("compliancePlan"), dict) else {},
+    )
+    quarterly = parsed.get("complianceQuarterly")
+    html_out = _replace_json_script(
+        html_out,
+        "compliance-quarterly-seed",
+        quarterly if isinstance(quarterly, dict) else {"rows": []},
+    )
+    return html_out
+
+
+def filter_compliance_attachment_script(
+    html_out: str,
+    allowed_kinds: set[str] | frozenset[str],
+) -> str:
+    """Drop Compliance attachment files the viewer was not granted."""
+    match = re.search(
+        r'<script[^>]*id=["\']compliance-attachments["\'][^>]*>([\s\S]*?)</script>',
+        html_out,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return html_out
+    try:
+        data = json.loads(match.group(1))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return html_out
+    if not isinstance(data, dict):
+        return html_out
+    kinds = []
+    for item in data.get("kinds") or []:
+        if isinstance(item, dict) and str(item.get("kind") or "") in allowed_kinds:
+            kinds.append(item)
+    data["kinds"] = kinds
+    return _replace_json_script(html_out, "compliance-attachments", data)
+
+
 def inject_dashboard_serve_context(
     html_out: str,
     *,
@@ -392,7 +508,7 @@ def inject_dashboard_serve_context(
     try:
         if _USER_EDITS_SAVE_MARKER in h:
             h = h.replace(_USER_EDITS_SAVE_MARKER, save_js)
-        elif "window.__AI_EXCEL_USER_EDITS_SAVE_URL__" not in h:
+        elif "window.__AI_EXCEL_USER_EDITS_SAVE_URL__=" not in h:
             h = _inject_before_head_close(h, f"<script>{save_js}\n{can_js}</script>")
         if _CAN_SAVE_USER_EDITS_MARKER in h:
             h = h.replace(_CAN_SAVE_USER_EDITS_MARKER, can_js)
@@ -402,6 +518,9 @@ def inject_dashboard_serve_context(
             h = h.replace(_CAN_SAVE_USER_EDITS_META_MARKER, can_meta)
         if user_edits_json and str(user_edits_json).strip():
             h = inject_user_edits_persist_script(h, user_edits_json)
+            h = inject_compliance_editor_seeds(h, user_edits_json)
+        if allowed_attachment_kinds is not None:
+            h = filter_compliance_attachment_script(h, allowed_attachment_kinds)
         return h
     except Exception:
         return h
@@ -492,7 +611,176 @@ def validate_dashboard_user_edits_payload(data: dict) -> dict:
         "planCellBg": plan_bg_out,
         "reviewsNote": str(reviews_note or ""),
         "obsTrackingRows": obs_tracking_out,
+        "compliancePlan": _normalize_compliance_plan(data.get("compliancePlan")),
+        "complianceQuarterly": _normalize_compliance_quarterly(data.get("complianceQuarterly")),
     }
+
+
+_COMPLIANCE_PLAN_MAX_ROWS = 400
+_COMPLIANCE_PLAN_MAX_COLS = 40
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _normalize_compliance_plan(raw) -> dict:
+    """Keep the compliance-plan grid as uploaded: headers, cells, and fill colors."""
+    if not isinstance(raw, dict):
+        return {"sheetName": "", "headers": [], "rows": [], "styles": {}}
+    headers = [
+        str(h if h is not None else "").strip()[:500]
+        for h in (raw.get("headers") or [])[:_COMPLIANCE_PLAN_MAX_COLS]
+    ]
+    width = max(len(headers), 1)
+    rows_out: list[list[str]] = []
+    for row in (raw.get("rows") or [])[:_COMPLIANCE_PLAN_MAX_ROWS]:
+        if not isinstance(row, list):
+            continue
+        cells = [str(c if c is not None else "").strip()[:4000] for c in row[:width]]
+        while len(cells) < width:
+            cells.append("")
+        rows_out.append(cells)
+    styles: dict[str, str] = {}
+    raw_styles = raw.get("styles") if isinstance(raw.get("styles"), dict) else {}
+    for key, color in list(raw_styles.items())[: _COMPLIANCE_PLAN_MAX_ROWS * width]:
+        if not re.fullmatch(r"\d+,\d+", str(key)):
+            continue
+        token = str(color or "").strip()
+        if _HEX_COLOR_RE.fullmatch(token):
+            styles[str(key)] = token.lower()
+    return {
+        "sheetName": str(raw.get("sheetName") or "").strip()[:200],
+        "headers": headers,
+        "rows": rows_out,
+        "styles": styles,
+    }
+
+
+def _normalize_compliance_quarterly(raw) -> dict:
+    source = raw.get("rows") if isinstance(raw, dict) else None
+    if not isinstance(source, list):
+        source = []
+    rows_out: list[list[str]] = []
+    for row in source[:5]:
+        if not isinstance(row, list):
+            row = []
+        cells = [str(c if c is not None else "").strip()[:80] for c in row[:6]]
+        while len(cells) < 6:
+            cells.append("")
+        rows_out.append(cells)
+    return {"rows": rows_out}
+
+
+def _compliance_plan_has_rows(plan: dict) -> bool:
+    for row in (plan or {}).get("rows") or []:
+        if isinstance(row, list) and any(str(cell).strip() for cell in row):
+            return True
+    return False
+
+
+def _compliance_quarterly_has_movement(block: dict) -> bool:
+    for row in (block or {}).get("rows") or []:
+        if not isinstance(row, list):
+            continue
+        cells = [str(c if c is not None else "").strip() for c in row[:6]]
+        while len(cells) < 6:
+            cells.append("")
+        if any(cells[idx] not in ("", "0") for idx in (1, 2, 3, 4)):
+            return True
+    return False
+
+
+def _plan_rows_blank(rows: list) -> bool:
+    """True when every audit-plan cell is empty."""
+    for row in rows or []:
+        if not isinstance(row, list):
+            continue
+        if any(str(cell).strip() for cell in row):
+            return False
+    return True
+
+
+def _obs_rows_meaningfully_empty(rows: list) -> bool:
+    """True when observation-tracking rows have no opening balance or movement."""
+    if not rows:
+        return True
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        cells = [str(c if c is not None else "").strip() for c in row[:5]]
+        while len(cells) < 5:
+            cells.append("")
+        opening, new_obs, closed, ending = cells[1], cells[2], cells[3], cells[4]
+        if new_obs or closed:
+            return False
+        if opening not in ("", "0") or ending not in ("", "0"):
+            return False
+    return True
+
+
+def merge_preserved_user_edits(existing_json: str, raw: dict, payload: dict) -> dict:
+    """Keep stored plan/tracking rows when this request did not edit that table.
+
+    Closing one panel used to POST the other table as blank rows and erase it.
+    ``planTouched`` / ``obsTrackingTouched`` false means that table was not on
+    screen. Older clients omit the flags; all-blank plan rows or zeroed
+    tracking rows must not replace stored content unless ``planCleared`` is set.
+    """
+    existing: dict = {}
+    try:
+        parsed = json.loads(existing_json or "")
+        if isinstance(parsed, dict):
+            existing = parsed
+    except (json.JSONDecodeError, TypeError, ValueError):
+        existing = {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    plan_touched = raw.get("planTouched")
+    plan_cleared = bool(raw.get("planCleared"))
+    if plan_cleared:
+        pass
+    elif plan_touched is False:
+        payload["planRows"] = list(existing.get("planRows") or [])
+        payload["planCellBg"] = list(existing.get("planCellBg") or [])
+    elif plan_touched is None and _plan_rows_blank(payload.get("planRows") or []):
+        if not _plan_rows_blank(existing.get("planRows") or []):
+            payload["planRows"] = list(existing.get("planRows") or [])
+            payload["planCellBg"] = list(existing.get("planCellBg") or [])
+
+    obs_touched = raw.get("obsTrackingTouched")
+    incoming_obs = payload.get("obsTrackingRows") or []
+    stored_obs = existing.get("obsTrackingRows") or []
+    if obs_touched is False:
+        payload["obsTrackingRows"] = list(stored_obs)
+    elif obs_touched is None and _obs_rows_meaningfully_empty(incoming_obs):
+        if not _obs_rows_meaningfully_empty(stored_obs):
+            payload["obsTrackingRows"] = list(stored_obs)
+
+    if raw.get("reviewsTouched") is False:
+        payload["reviewsNote"] = str(existing.get("reviewsNote") or "")
+
+    stored_plan = existing.get("compliancePlan") if isinstance(existing.get("compliancePlan"), dict) else {}
+    incoming_plan = payload.get("compliancePlan") if isinstance(payload.get("compliancePlan"), dict) else {}
+    plan_flag = raw.get("compliancePlanTouched")
+    if plan_flag is False or (plan_flag is None and not _compliance_plan_has_rows(incoming_plan)):
+        payload["compliancePlan"] = stored_plan or incoming_plan
+
+    stored_quarter = (
+        existing.get("complianceQuarterly")
+        if isinstance(existing.get("complianceQuarterly"), dict)
+        else {}
+    )
+    incoming_quarter = (
+        payload.get("complianceQuarterly")
+        if isinstance(payload.get("complianceQuarterly"), dict)
+        else {}
+    )
+    quarter_flag = raw.get("complianceQuarterlyTouched")
+    if quarter_flag is False or (
+        quarter_flag is None and not _compliance_quarterly_has_movement(incoming_quarter)
+    ):
+        payload["complianceQuarterly"] = stored_quarter or incoming_quarter
+
+    return payload
 
 
 def update_dashboard_review_attachments(
@@ -516,6 +804,7 @@ def update_dashboard_review_attachments(
         existing_source=existing_source,
         is_resubmit=True,
         company=company or dashboard.company,
+        template_type=dashboard.template_type,
     )
     source_files_info = dict(existing_source)
     source_files_info.update(resolved)
@@ -708,6 +997,7 @@ def _resolve_all_deck_attachments(
     existing_source: dict | None,
     is_resubmit: bool,
     company=None,
+    template_type: str | None = None,
 ) -> dict[str, list[str]]:
     from audit_app.company_access import (
         get_attachment_max_files_map,
@@ -720,7 +1010,12 @@ def _resolve_all_deck_attachments(
     max_by_kind = get_attachment_max_files_map(company)
     locale = normalize_locale(request.session.get("ui_lang", "en"))
     resolved: dict[str, list[str]] = {}
-    for spec in ATTACHMENT_SPECS:
+    specs = (
+        attachment_specs_for_template(template_type)
+        if template_type
+        else ATTACHMENT_SPECS
+    )
+    for spec in specs:
         kind = spec["kind"]
         field_prefix = spec["field_prefix"]
         has_upload = bool(_deck_uploads_from_request(request, field_prefix))
@@ -756,6 +1051,7 @@ def build_attachment_form_slots(
     dashboard,
     locale: str = "en",
     company=None,
+    template_type: str | None = None,
 ) -> list[dict[str, Any]]:
     from audit_app.company_access import (
         get_attachment_max_files_map,
@@ -767,8 +1063,10 @@ def build_attachment_form_slots(
     enabled_kinds = get_enabled_attachment_kinds(company)
     max_by_kind = get_attachment_max_files_map(company)
     source = dashboard.source_files if dashboard and isinstance(dashboard.source_files, dict) else {}
+    if dashboard is not None and getattr(dashboard, "template_type", None):
+        template_type = dashboard.template_type
     slots: list[dict[str, Any]] = []
-    for spec in ATTACHMENT_SPECS:
+    for spec in attachment_specs_for_template(template_type):
         if spec["kind"] not in enabled_kinds:
             continue
         paths = _existing_media_paths(source.get(spec["source_key"]))
@@ -789,9 +1087,49 @@ def build_attachment_form_slots(
                 "existing_count": len(names),
                 "max_files": max_files,
                 "remaining_slots": max(0, max_files - len(paths)),
+                "template_codes": ",".join(spec.get("templates") or (TEMPLATE_CODE_IAD,)),
             }
         )
     return slots
+
+
+_CD_ATTACHMENT_LABELS = {
+    "legislation": "التشريعات و الانظمة و القوانين",
+    "complianceDetailed": "تقرير ادارة الالتزام التفصيلي",
+    "complianceQuarterly": "تقرير ادارة الالتزام الربعي",
+}
+
+
+def build_compliance_attachments_payload(
+    source_files: dict | None,
+    enabled_kinds: set[str],
+) -> dict[str, Any]:
+    """Embed Compliance-only decks (PPTX/PDF) for the in-dashboard viewer."""
+    source = source_files if isinstance(source_files, dict) else {}
+    kinds: list[dict[str, Any]] = []
+    for spec in attachment_specs_for_template(TEMPLATE_CODE_CD):
+        kind = spec["kind"]
+        if kind not in enabled_kinds:
+            continue
+        paths = _abs_media_paths(source.get(spec["source_key"]))
+        if not paths:
+            continue
+        bundle = build_embedded_slide_deck_bundle(fallback_paths=paths, locale="ar")
+        if not bundle:
+            continue
+        files = bundle.get("files") or []
+        if not files and bundle.get("data_base64"):
+            files = [bundle]
+        if not files:
+            continue
+        kinds.append(
+            {
+                "kind": kind,
+                "label": _CD_ATTACHMENT_LABELS.get(kind, kind),
+                "files": files,
+            }
+        )
+    return {"kinds": kinds}
 
 
 def _abs_media_paths(relative_paths: list[str] | None) -> list[str]:
@@ -1016,7 +1354,20 @@ def _store_ar_compliance_upload(
             session.raw_data_json = json.dumps(entry, ensure_ascii=False)
             session.save(update_fields=["raw_data_json"])
 
-        source_files_info = {"excel": [primary_name]}
+        existing_source = (
+            resubmit_dashboard.source_files
+            if resubmit_dashboard and isinstance(resubmit_dashboard.source_files, dict)
+            else {}
+        )
+        resolved_decks = _resolve_all_deck_attachments(
+            request,
+            report_id,
+            existing_source=existing_source,
+            is_resubmit=resubmit_dashboard is not None,
+            company=active_company,
+            template_type=TEMPLATE_CODE,
+        )
+        source_files_info = {"excel": [primary_name], **resolved_decks}
 
         if resubmit_dashboard:
             resubmit_dashboard.name = dashboard_name
@@ -1246,6 +1597,7 @@ def store_upload_to_db(
             existing_source=existing_source,
             is_resubmit=is_resubmit,
             company=active_company,
+            template_type=template_type,
         )
 
         source_files_info = {
@@ -1324,12 +1676,16 @@ def generate_from_db_data(dashboard, request, locale: str | None = None) -> str:
         df = dataframe_from_dashboard(dashboard)
         api_base = f"/dashboards/{dashboard.pk}/ar-api"
         brand_logos, default_brand_code = main_brand_logo_pack(dashboard.company)
+        source_files = dashboard.source_files if isinstance(dashboard.source_files, dict) else {}
+        enabled_kinds = get_enabled_attachment_kinds(dashboard.company)
+        attachments = build_compliance_attachments_payload(source_files, enabled_kinds)
         return generate_ar_compliance_report(
             df,
             dashboard_id=dashboard.pk,
             api_base=api_base,
             brand_logos=brand_logos,
             default_brand_code=default_brand_code,
+            attachments=attachments,
         )
 
     # AI dashboards are always English; others follow the UI language.
@@ -1407,7 +1763,6 @@ def generate_from_db_data(dashboard, request, locale: str | None = None) -> str:
 
     result = inject_web_mail_api(html_out, mail_url, plan_url)
 
-    # Fix: ensure Plotly SVG overflow is visible so axis labels aren't clipped
     overflow_fix = (
         "<style>"
         ".js-plotly-plot,.js-plotly-plot .plotly{"
@@ -1422,3 +1777,4 @@ def generate_from_db_data(dashboard, request, locale: str | None = None) -> str:
         result = overflow_fix + result
 
     return result
+              

@@ -25,10 +25,12 @@ def nav_template_sections(user, company, ui: dict | None = None) -> list[dict]:
         if not can_upload and not can_view:
             continue
         label = ui.get(f"template_nav_{code}") if ui else None
+        link_label = ui.get(f"nav_link_{code}") if ui else None
         sections.append(
             {
                 "code": code,
                 "name": label or template.name,
+                "link_label": link_label or label or template.name,
                 "icon": getattr(template, "icon", None) or "bi-grid",
                 "can_upload": can_upload,
                 "can_view": can_view,

@@ -2,12 +2,7 @@
 {% load static %}
 {% block title %}{{ ui.dl_page_title }}{% endblock %}
 
-{% block page_title %}
-<span class="d-flex align-items-center gap-2">
-    <i class="bi {% if show_trash %}bi-trash{% else %}bi-grid-3x3-gap-fill{% endif %}" style="color:var(--accent);"></i>
-    {% if show_trash %}{{ ui.dl_trash_heading }}{% elif list_heading %}{{ list_heading }}{% else %}{{ ui.dl_heading }}{% endif %}
-</span>
-{% endblock %}
+{% block page_title %}{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard-pages.css' %}">

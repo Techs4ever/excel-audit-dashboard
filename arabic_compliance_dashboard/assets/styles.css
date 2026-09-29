@@ -2703,4 +2703,45 @@
                 width: 100%;
             }
         }
+        .compliance-save-status {
+            color: #e2e8f0;
+            font-size: 13px;
+            margin-inline: 8px;
+        }
+        .compliance-attachment-toggles {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .quarterly-computed {
+            background: #eef2f7;
+            color: #0f2744;
+            font-weight: 700;
+        }
+        .compliance-attachment-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .compliance-attachment-nav {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .compliance-attachment-host {
+            min-height: 420px;
+            background: #fff;
+            border: 1px solid var(--ui-border);
+            border-radius: 8px;
+            overflow: auto;
+        }
+        .compliance-attachment-frame,
+        .compliance-pptx-canvas {
+            width: 100%;
+            min-height: 420px;
+            border: 0;
+            background: #fff;
+        }
     
