@@ -665,6 +665,18 @@ class Dashboard(models.Model):
         verbose_name=_("Deleted by"),
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    linked_dashboard = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="linked_from_dashboards",
+        verbose_name=_("Linked published dashboard"),
+        help_text=_(
+            "Inherit attachment files from this published dashboard. "
+            "Must be the same company and template. The chain includes that dashboard's own link."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Dashboard")
@@ -679,6 +691,23 @@ class Dashboard(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def clean(self):
+        super().clean()
+        if not self.linked_dashboard_id:
+            return
+        from reports_app.dashboard_links import DashboardLinkError, validate_link_target
+
+        try:
+            validate_link_target(
+                self,
+                self.linked_dashboard,
+                company=self.company,
+                template_type=self.template_type,
+                allow_current=True,
+            )
+        except DashboardLinkError as exc:
+            raise ValidationError({"linked_dashboard": exc.message_for_locale(None)}) from exc
 
     @property
     def is_published(self) -> bool:

@@ -214,6 +214,8 @@
                     </div>
                 </div>
 
+                {% include "reports_app/_dashboard_link_field.html" %}
+
                 <!-- ── Optional attachments (PPTX/PDF) ── -->
                 <div id="attachmentSections">
                 {% for slot in attachment_slots %}
@@ -238,15 +240,23 @@
                                 <i class="bi bi-paperclip text-success"></i>
                                 <span>{{ ui.upload_attach_current }}
                                     <span id="{{ slot.kind }}ExistingHeadCount">({{ slot.existing_count }}/{{ slot.max_files }})</span></span>
+                                {% if slot.has_own %}
                                 <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
                                         onclick="markAttachmentRemove('{{ slot.kind }}', '{{ slot.field_prefix }}')">
                                     <i class="bi bi-trash me-1"></i>{{ ui.upload_attach_remove_all_btn }}
                                 </button>
+                                {% endif %}
                             </div>
                             <ul class="attach-existing__list" id="{{ slot.kind }}ExistingList">
                                 {% for item in slot.existing_items %}
-                                <li class="attach-existing__item" data-path="{{ item.path }}">
+                                <li class="attach-existing__item{% if item.inherited %} attach-existing__item--inherited{% else %} attach-existing__item--own{% endif %}" data-path="{{ item.path }}">
                                     <span class="attach-existing__name" title="{{ item.name }}">{{ item.name }}</span>
+                                    {% if item.inherited %}
+                                    <span class="attach-existing__inherited">
+                                        <i class="bi bi-lock-fill"></i>
+                                        {{ ui.link_inherited_from }} {{ item.source_dashboard_name }}
+                                    </span>
+                                    {% else %}
                                     <label class="attach-existing__remove">
                                         <input type="checkbox"
                                                name="remove_{{ slot.field_prefix }}_item"
@@ -255,6 +265,7 @@
                                                data-kind="{{ slot.kind }}">
                                         <span>{{ ui.upload_attach_remove_one_btn }}</span>
                                     </label>
+                                    {% endif %}
                                 </li>
                                 {% endfor %}
                             </ul>
@@ -278,6 +289,7 @@
                                    accept=".pptx,.ppt,.pdf" multiple
                                    data-max-files="{{ slot.max_files }}"
                                    data-existing-count="{{ slot.existing_count }}"
+                                   data-locked-count="{{ slot.inherited_count }}"
                                    {% if slot.remaining_slots == 0 and slot.has_existing %}data-attach-full="1" aria-disabled="true"{% endif %}
                                    onchange="onAttachmentFile(this,'{{ slot.kind }}','{{ slot.field_prefix }}')">
                             <div class="fz-icon"><i class="bi {{ slot.zone_icon }}"></i></div>
@@ -468,6 +480,21 @@
             var allowed = (el.getAttribute('data-templates') || 'IAD').split(',');
             el.style.display = allowed.indexOf(code) >= 0 ? '' : 'none';
         });
+        var linkSelect = document.getElementById('linkedDashboardSelect');
+        if (linkSelect) {
+            var keep = '';
+            Array.prototype.forEach.call(linkSelect.options, function (opt) {
+                if (!opt.value) {
+                    opt.hidden = false;
+                    return;
+                }
+                var match = (opt.getAttribute('data-template') || '') === code;
+                opt.hidden = !match;
+                opt.disabled = !match;
+                if (match && opt.selected) keep = opt.value;
+            });
+            if (linkSelect.value && !keep) linkSelect.value = '';
+        }
         if (fileInput) {
             fileInput.accept = isAr ? '.xlsx,.xls,.xlsm' : '.xlsx,.xls,.xlsm,.csv';
         }
@@ -513,11 +540,16 @@ function markAttachmentRemove(kind, fieldPrefix) {
     var fileIn = document.getElementById('id_' + fieldPrefix);
     if (removeIn) removeIn.value = '1';
     if (panel) {
-        panel.style.display = 'none';
         panel.querySelectorAll('.js-attach-item-remove').forEach(function (cb) {
-            cb.checked = false;
+            cb.checked = true;
             cb.disabled = true;
         });
+        panel.querySelectorAll('.attach-existing__item--own').forEach(function (li) {
+            li.style.display = 'none';
+        });
+        if (!panel.querySelector('.attach-existing__item--inherited')) {
+            panel.style.display = 'none';
+        }
     }
     if (notice) notice.style.display = 'block';
     if (selected) selected.style.display = 'none';

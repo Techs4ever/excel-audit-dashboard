@@ -33,6 +33,9 @@
     <span class="meta-pill"><i class="bi bi-info-circle"></i> {{ dashboard.description }}</span>
     {% endif %}
     <span class="meta-pill"><i class="bi bi-layout-wtf"></i> {{ dashboard.get_template_display_name }}</span>
+    {% if dashboard.linked_dashboard and not dashboard.linked_dashboard.is_deleted %}
+    <span class="meta-pill"><i class="bi bi-link-45deg"></i> {{ ui.link_pill }} {{ dashboard.linked_dashboard.name }}</span>
+    {% endif %}
     {% if dashboard.status == "draft" %}
     <span class="badge badge-status-draft"><i class="bi bi-pencil-square me-1"></i>{{ ui.wf_status_draft }}</span>
     {% elif dashboard.status == "under_review" %}
@@ -205,6 +208,7 @@
         <p class="small text-muted mb-3">{{ ui.wf_review_attach_hint }}</p>
         <form method="post" action="{% url 'dashboard_review_attachments' dashboard.pk %}" enctype="multipart/form-data" id="reviewAttachmentsForm">
             {% csrf_token %}
+            {% include "reports_app/_dashboard_link_field.html" %}
             <div id="reviewAttachmentSections">
             {% for slot in review_attachment_slots %}
             <div class="form-section js-attachment-slot mb-3" data-kind="{{ slot.kind }}" data-field-prefix="{{ slot.field_prefix }}">
@@ -228,15 +232,23 @@
                             <i class="bi bi-paperclip text-success"></i>
                             <span>{{ ui.upload_attach_current }}
                                 <span id="review-{{ slot.kind }}ExistingHeadCount">({{ slot.existing_count }}/{{ slot.max_files }})</span></span>
+                            {% if slot.has_own %}
                             <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
                                     onclick="markReviewAttachmentRemove('{{ slot.kind }}', '{{ slot.field_prefix }}')">
                                 <i class="bi bi-trash me-1"></i>{{ ui.upload_attach_remove_all_btn }}
                             </button>
+                            {% endif %}
                         </div>
                         <ul class="attach-existing__list" id="review-{{ slot.kind }}ExistingList">
                             {% for item in slot.existing_items %}
-                            <li class="attach-existing__item" data-path="{{ item.path }}">
+                            <li class="attach-existing__item{% if item.inherited %} attach-existing__item--inherited{% else %} attach-existing__item--own{% endif %}" data-path="{{ item.path }}">
                                 <span class="attach-existing__name" title="{{ item.name }}">{{ item.name }}</span>
+                                {% if item.inherited %}
+                                <span class="attach-existing__inherited">
+                                    <i class="bi bi-lock-fill"></i>
+                                    {{ ui.link_inherited_from }} {{ item.source_dashboard_name }}
+                                </span>
+                                {% else %}
                                 <label class="attach-existing__remove">
                                     <input type="checkbox"
                                            name="remove_{{ slot.field_prefix }}_item"
@@ -245,6 +257,7 @@
                                            data-kind="{{ slot.kind }}">
                                     <span>{{ ui.upload_attach_remove_one_btn }}</span>
                                 </label>
+                                {% endif %}
                             </li>
                             {% endfor %}
                         </ul>
@@ -268,6 +281,7 @@
                                accept=".pptx,.ppt,.pdf" multiple
                                data-max-files="{{ slot.max_files }}"
                                data-existing-count="{{ slot.existing_count }}"
+                               data-locked-count="{{ slot.inherited_count }}"
                                {% if slot.remaining_slots == 0 and slot.has_existing %}data-attach-full="1" aria-disabled="true"{% endif %}
                                onchange="onReviewAttachmentFile(this,'{{ slot.kind }}','{{ slot.field_prefix }}')">
                         <div class="fz-icon"><i class="bi {{ slot.zone_icon }}"></i></div>
@@ -470,11 +484,16 @@ function markReviewAttachmentRemove(kind, fieldPrefix) {
     var fileIn = document.getElementById('review-id_' + fieldPrefix);
     if (removeIn) removeIn.value = '1';
     if (panel) {
-        panel.style.display = 'none';
         panel.querySelectorAll('.js-attach-item-remove').forEach(function (cb) {
-            cb.checked = false;
+            cb.checked = true;
             cb.disabled = true;
         });
+        panel.querySelectorAll('.attach-existing__item--own').forEach(function (li) {
+            li.style.display = 'none';
+        });
+        if (!panel.querySelector('.attach-existing__item--inherited')) {
+            panel.style.display = 'none';
+        }
     }
     if (notice) notice.style.display = 'block';
     if (selected) selected.style.display = 'none';

@@ -70,6 +70,7 @@ from .dashboard_workflow import (
     submit_dashboard,
     user_allowed_attachment_kinds,
 )
+from reports_app.dashboard_links import link_choices
 from reports_app.workflow_engine import company_uses_workflow_v2
 from .services.report_generation import (
     ATTACHMENT_SPECS,
@@ -143,8 +144,8 @@ def page_not_found_view(request, exception=None):
     return render_page_not_found(request)
 
 
-def _clear_dashboard_html_cache(dashboard: Dashboard) -> None:
-    """Remove generated HTML cache files only (keep deck attachments)."""
+def _clear_one_dashboard_html_cache(dashboard: Dashboard) -> None:
+    """Remove generated HTML cache files for one dashboard (keep deck attachments)."""
     media_root = Path(settings.MEDIA_ROOT)
     dashboards_dir = media_root / "dashboards"
     if dashboards_dir.is_dir():
@@ -161,6 +162,18 @@ def _clear_dashboard_html_cache(dashboard: Dashboard) -> None:
             except OSError:
                 pass
         dashboard.html_file = ""
+
+
+def _clear_dashboard_html_cache(dashboard: Dashboard) -> None:
+    """Drop this dashboard's HTML cache and any dashboard that inherits from it."""
+    from reports_app.dashboard_links import iter_descendant_dashboards
+
+    _clear_one_dashboard_html_cache(dashboard)
+    for child in iter_descendant_dashboards(dashboard):
+        had_cache = bool(child.html_file)
+        _clear_one_dashboard_html_cache(child)
+        if had_cache:
+            child.save(update_fields=["html_file"])
 
 
 def _cleanup_dashboard_files(dashboard: Dashboard) -> None:
@@ -236,6 +249,7 @@ def _upload_form_from_post(post) -> dict:
         "description": post.get("description", "").strip(),
         "template_type": post.get("template_type", "").strip(),
         "resubmit_dashboard_id": post.get("resubmit_dashboard_id", "").strip(),
+        "linked_dashboard_id": post.get("linked_dashboard_id", "").strip(),
     }
 
 
@@ -315,6 +329,14 @@ def _upload_page_context(request, form: dict | None = None) -> dict:
             and session
             and session.raw_data_json
         )
+    company = _active_company(request)
+    posted_link = str(form.get("linked_dashboard_id") or "").strip()
+    if posted_link.isdigit():
+        selected_link_id = int(posted_link)
+    elif resubmit_dashboard and resubmit_dashboard.linked_dashboard_id:
+        selected_link_id = resubmit_dashboard.linked_dashboard_id
+    else:
+        selected_link_id = None
     return {
         "icon_choices": ICON_CHOICES,
         "template_types": active_templates,
@@ -333,6 +355,9 @@ def _upload_page_context(request, form: dict | None = None) -> dict:
         "selected_icon": selected_icon,
         "selected_template": selected_template,
         "dashboard_name_value": dashboard_name_value,
+        "link_targets": link_choices(company, resubmit_dashboard),
+        "selected_link_id": selected_link_id,
+        "show_dashboard_link": company is not None,
     }
 
 
@@ -675,6 +700,11 @@ def dashboard_detail(request, pk: int):
                 request.user, company, dashboard.template_type
             ),
             "upload_url": f"{reverse('upload')}?template={dashboard.template_type}",
+            "link_targets": (
+                link_choices(company, dashboard) if can_manage_review_attachments else []
+            ),
+            "selected_link_id": dashboard.linked_dashboard_id,
+            "show_dashboard_link": can_manage_review_attachments,
         },
     )
 

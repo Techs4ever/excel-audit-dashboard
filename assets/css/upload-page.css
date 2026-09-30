@@ -340,6 +340,22 @@ details[open] > summary i.bi-exclamation-triangle-fill {
     min-width: 0;
 }
 
+.attach-existing__item--inherited {
+    background: rgba(241, 245, 249, 0.9);
+    border-color: rgba(148, 163, 184, 0.55);
+}
+
+.attach-existing__inherited {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-inline-start: auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    white-space: nowrap;
+}
+
 .attach-existing__remove {
     display: inline-flex;
     align-items: center;

@@ -316,6 +316,17 @@ def _resubmit_can_keep_existing_excel(request, resubmit_dashboard, template_type
     return bool(session and session.raw_data_json)
 
 
+def _attachment_link_parent(request, dashboard, company, template_type):
+    from reports_app.dashboard_links import link_parent_for_request
+
+    return link_parent_for_request(
+        request,
+        dashboard,
+        company=company,
+        template_type=template_type,
+    )
+
+
 def _resubmit_update_metadata_and_attachments(
     request,
     resubmit_dashboard,
@@ -333,6 +344,9 @@ def _resubmit_update_metadata_and_attachments(
         if isinstance(resubmit_dashboard.source_files, dict)
         else {}
     )
+    link_parent = _attachment_link_parent(
+        request, resubmit_dashboard, active_company, template_type
+    )
     resolved_decks = _resolve_all_deck_attachments(
         request,
         resubmit_dashboard.report_id,
@@ -340,6 +354,7 @@ def _resubmit_update_metadata_and_attachments(
         is_resubmit=True,
         company=active_company,
         template_type=template_type,
+        inherit_from=link_parent,
     )
     excel_names = _existing_excel_names(resubmit_dashboard)
     source_files_info = dict(existing_source)
@@ -353,6 +368,7 @@ def _resubmit_update_metadata_and_attachments(
     resubmit_dashboard.template_type = template_type
     resubmit_dashboard.html_file = ""
     resubmit_dashboard.source_files = source_files_info
+    resubmit_dashboard.linked_dashboard = link_parent
     if not resubmit_dashboard.company_id:
         resubmit_dashboard.company = active_company
     mark_dashboard_draft(resubmit_dashboard)
@@ -367,6 +383,7 @@ def _resubmit_update_metadata_and_attachments(
             "company",
             "status",
             "published_at",
+            "linked_dashboard",
         ]
     )
     return resubmit_dashboard
@@ -798,21 +815,27 @@ def update_dashboard_review_attachments(
     existing_source = (
         dashboard.source_files if isinstance(dashboard.source_files, dict) else {}
     )
+    active_company = company or dashboard.company
+    link_parent = _attachment_link_parent(
+        request, dashboard, active_company, dashboard.template_type
+    )
     resolved = _resolve_all_deck_attachments(
         request,
         dashboard.report_id,
         existing_source=existing_source,
         is_resubmit=True,
-        company=company or dashboard.company,
+        company=active_company,
         template_type=dashboard.template_type,
+        inherit_from=link_parent,
     )
     source_files_info = dict(existing_source)
     source_files_info.update(resolved)
     if "excel" not in source_files_info and existing_source.get("excel"):
         source_files_info["excel"] = list(existing_source.get("excel") or [])
     dashboard.source_files = source_files_info
+    dashboard.linked_dashboard = link_parent
     dashboard.html_file = ""
-    dashboard.save(update_fields=["source_files", "html_file"])
+    dashboard.save(update_fields=["source_files", "html_file", "linked_dashboard"])
 
 
 def excel_uploads_from_request(request) -> list:
@@ -926,13 +949,21 @@ def _resolve_deck_attachment_paths(
     max_files: int = DEFAULT_ATTACHMENT_MAX_FILES,
     locale: str = "en",
     kind_label: str = "",
+    reserved_count: int = 0,
+    protected_paths: list[str] | None = None,
 ) -> list[str]:
     from dashboard_locale import tr
 
     max_files = max(
         1, min(int(max_files or DEFAULT_ATTACHMENT_MAX_FILES), ATTACHMENT_MAX_FILES)
     )
-    existing_valid = _existing_media_paths(existing_paths)
+    protected = {p.replace("\\", "/") for p in (protected_paths or [])}
+    existing_valid = [
+        rel
+        for rel in _existing_media_paths(existing_paths)
+        if rel.replace("\\", "/") not in protected
+    ]
+    reserved_count = max(0, int(reserved_count or 0))
     remove_all = request.POST.get(f"remove_{field_prefix}") == "1"
     remove_tokens = _removed_item_tokens(request, field_prefix)
     new_uploads = _deck_uploads_from_request(
@@ -953,18 +984,21 @@ def _resolve_deck_attachment_paths(
             else:
                 kept.append(rel)
 
-    # Validate final count BEFORE mutating media files.
+    # Inherited files occupy slots but are never deleted from the parent.
+    # A save that only keeps or removes own files is allowed even when the
+    # inherited sequence already fills the company limit.
     planned_new = len(new_uploads)
-    planned_total = len(kept) + planned_new
-    if planned_total > max_files:
+    planned_total = reserved_count + len(kept) + planned_new
+    own_grew = bool(new_uploads) or len(kept) > len(existing_valid)
+    if planned_total > max_files and own_grew:
         raise ValueError(
             tr(
                 locale,
                 "err_attachment_max_files",
                 max=max_files,
                 label=kind_label or field_prefix,
-                keep=len(kept),
-                room=max(0, max_files - len(kept)),
+                keep=reserved_count + len(kept),
+                room=max(0, max_files - reserved_count - len(kept)),
                 total=planned_total,
             )
         )
@@ -998,6 +1032,7 @@ def _resolve_all_deck_attachments(
     is_resubmit: bool,
     company=None,
     template_type: str | None = None,
+    inherit_from=None,
 ) -> dict[str, list[str]]:
     from audit_app.company_access import (
         get_attachment_max_files_map,
@@ -1005,7 +1040,10 @@ def _resolve_all_deck_attachments(
     )
     from dashboard_locale import normalize_locale, tr
 
+    from reports_app.dashboard_links import inherited_paths_from_parent
+
     existing_source = existing_source if isinstance(existing_source, dict) else {}
+    inherited_by_key = inherited_paths_from_parent(inherit_from)
     enabled_kinds = get_enabled_attachment_kinds(company)
     max_by_kind = get_attachment_max_files_map(company)
     locale = normalize_locale(request.session.get("ui_lang", "en"))
@@ -1033,6 +1071,7 @@ def _resolve_all_deck_attachments(
                 resolved[spec["source_key"]] = []
             continue
 
+        inherited_paths = inherited_by_key.get(spec["source_key"]) or []
         resolved[spec["source_key"]] = _resolve_deck_attachment_paths(
             request,
             report_id,
@@ -1043,6 +1082,8 @@ def _resolve_all_deck_attachments(
             max_files=max_by_kind.get(kind, DEFAULT_ATTACHMENT_MAX_FILES),
             locale=locale,
             kind_label=kind,
+            reserved_count=len(inherited_paths),
+            protected_paths=inherited_paths,
         )
     return resolved
 
@@ -1059,19 +1100,33 @@ def build_attachment_form_slots(
     )
     from web_strings import get_ui
 
+    from reports_app.dashboard_links import inherited_attachment_items
+
     ui = get_ui(locale)
     enabled_kinds = get_enabled_attachment_kinds(company)
     max_by_kind = get_attachment_max_files_map(company)
     source = dashboard.source_files if dashboard and isinstance(dashboard.source_files, dict) else {}
+    inherited_by_key = inherited_attachment_items(dashboard) if dashboard is not None else {}
     if dashboard is not None and getattr(dashboard, "template_type", None):
         template_type = dashboard.template_type
     slots: list[dict[str, Any]] = []
     for spec in attachment_specs_for_template(template_type):
         if spec["kind"] not in enabled_kinds:
             continue
-        paths = _existing_media_paths(source.get(spec["source_key"]))
-        names = [Path(p).name for p in paths]
-        items = [{"path": p, "name": Path(p).name} for p in paths]
+        inherited_items = list(inherited_by_key.get(spec["source_key"]) or [])
+        inherited_paths = {item["path"] for item in inherited_items}
+        own_paths = [
+            p
+            for p in _existing_media_paths(source.get(spec["source_key"]))
+            if p not in inherited_paths
+        ]
+        own_items = [
+            {"path": p, "name": Path(p).name, "inherited": False, "source_dashboard_name": ""}
+            for p in own_paths
+        ]
+        items = inherited_items + own_items
+        paths = [item["path"] for item in items]
+        names = [item["name"] for item in items]
         max_files = max_by_kind.get(spec["kind"], DEFAULT_ATTACHMENT_MAX_FILES)
         hint_key = spec.get("ui_hint") or ""
         slots.append(
@@ -1081,6 +1136,9 @@ def build_attachment_form_slots(
                 "hint": ui.get(hint_key, "") if hint_key else "",
                 "drop": ui.get(spec["ui_drop"], ""),
                 "has_existing": bool(paths),
+                "has_own": bool(own_items),
+                "inherited_count": len(inherited_items),
+                "own_count": len(own_items),
                 "existing_name": names[0] if names else "",
                 "existing_names": names,
                 "existing_items": items,
@@ -1359,6 +1417,9 @@ def _store_ar_compliance_upload(
             if resubmit_dashboard and isinstance(resubmit_dashboard.source_files, dict)
             else {}
         )
+        link_parent = _attachment_link_parent(
+            request, resubmit_dashboard, active_company, TEMPLATE_CODE
+        )
         resolved_decks = _resolve_all_deck_attachments(
             request,
             report_id,
@@ -1366,6 +1427,7 @@ def _store_ar_compliance_upload(
             is_resubmit=resubmit_dashboard is not None,
             company=active_company,
             template_type=TEMPLATE_CODE,
+            inherit_from=link_parent,
         )
         source_files_info = {"excel": [primary_name], **resolved_decks}
 
@@ -1376,6 +1438,7 @@ def _store_ar_compliance_upload(
             resubmit_dashboard.template_type = TEMPLATE_CODE
             resubmit_dashboard.html_file = ""
             resubmit_dashboard.source_files = source_files_info
+            resubmit_dashboard.linked_dashboard = link_parent
             resubmit_dashboard.upload_session = session
             if not resubmit_dashboard.company_id:
                 resubmit_dashboard.company = active_company
@@ -1392,6 +1455,7 @@ def _store_ar_compliance_upload(
                     "company",
                     "status",
                     "published_at",
+                    "linked_dashboard",
                 ]
             )
             return resubmit_dashboard
@@ -1408,6 +1472,7 @@ def _store_ar_compliance_upload(
             created_by=request.user if request.user.is_authenticated else None,
             upload_session=session,
             status=DashboardStatus.DRAFT,
+            linked_dashboard=link_parent,
         )
 
 
@@ -1591,6 +1656,9 @@ def store_upload_to_db(
             else {}
         )
         is_resubmit = resubmit_dashboard is not None
+        link_parent = _attachment_link_parent(
+            request, resubmit_dashboard, active_company, template_type
+        )
         resolved_decks = _resolve_all_deck_attachments(
             request,
             report_id,
@@ -1598,6 +1666,7 @@ def store_upload_to_db(
             is_resubmit=is_resubmit,
             company=active_company,
             template_type=template_type,
+            inherit_from=link_parent,
         )
 
         source_files_info = {
@@ -1612,6 +1681,7 @@ def store_upload_to_db(
             resubmit_dashboard.template_type = template_type
             resubmit_dashboard.html_file = ""
             resubmit_dashboard.source_files = source_files_info
+            resubmit_dashboard.linked_dashboard = link_parent
             resubmit_dashboard.upload_session = (
                 session if isinstance(session, UploadSession) else None
             )
@@ -1630,6 +1700,7 @@ def store_upload_to_db(
                     "company",
                     "status",
                     "published_at",
+                    "linked_dashboard",
                 ]
             )
             return resubmit_dashboard
@@ -1646,6 +1717,7 @@ def store_upload_to_db(
             created_by=request.user if request.user.is_authenticated else None,
             upload_session=session if isinstance(session, UploadSession) else None,
             status=DashboardStatus.DRAFT,
+            linked_dashboard=link_parent,
         )
         return dashboard
 
@@ -1676,7 +1748,9 @@ def generate_from_db_data(dashboard, request, locale: str | None = None) -> str:
         df = dataframe_from_dashboard(dashboard)
         api_base = f"/dashboards/{dashboard.pk}/ar-api"
         brand_logos, default_brand_code = main_brand_logo_pack(dashboard.company)
-        source_files = dashboard.source_files if isinstance(dashboard.source_files, dict) else {}
+        from reports_app.dashboard_links import effective_source_files
+
+        source_files = effective_source_files(dashboard)
         enabled_kinds = get_enabled_attachment_kinds(dashboard.company)
         attachments = build_compliance_attachments_payload(source_files, enabled_kinds)
         return generate_ar_compliance_report(
@@ -1700,9 +1774,9 @@ def generate_from_db_data(dashboard, request, locale: str | None = None) -> str:
     mail_url = request.build_absolute_uri("/api/send-obs-email")
     plan_url = request.build_absolute_uri("/api/parse-audit-plan-pptx")
 
-    source_files = dashboard.source_files or {}
-    if not isinstance(source_files, dict):
-        source_files = {}
+    from reports_app.dashboard_links import effective_source_files
+
+    source_files = effective_source_files(dashboard)
     enabled_kinds = get_enabled_attachment_kinds(dashboard.company)
     attachment_kwargs = _attachment_path_kwargs(source_files, enabled_kinds)
 
@@ -1777,4 +1851,3 @@ def generate_from_db_data(dashboard, request, locale: str | None = None) -> str:
         result = overflow_fix + result
 
     return result
-              

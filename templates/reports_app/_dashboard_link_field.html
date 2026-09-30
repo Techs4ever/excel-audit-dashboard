@@ -1,0 +1,18 @@
+{% if show_dashboard_link %}
+<div class="form-section" id="dashboardLinkSection">
+    <div class="section-label">
+        <i class="bi bi-link-45deg"></i> {{ ui.link_label }}
+    </div>
+    <p class="attach-details-hint">{{ ui.link_hint }}</p>
+    <select name="linked_dashboard_id" id="linkedDashboardSelect" class="form-select">
+        <option value="">{{ ui.link_none }}</option>
+        {% for target in link_targets %}
+        <option value="{{ target.pk }}"
+                data-template="{{ target.template_type }}"
+                {% if selected_link_id == target.pk %}selected{% endif %}>
+            {{ target.name }}
+        </option>
+        {% endfor %}
+    </select>
+</div>
+{% endif %}

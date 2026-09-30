@@ -1647,6 +1647,7 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
     )
     search_fields = ("name", "report_id", "description")
     list_filter = ("company", "status", "template_type", "icon", "created_at", "created_by")
+    autocomplete_fields = ("linked_dashboard",)
     readonly_fields = (
         "report_id", "html_file", "source_files", "created_at", "upload_session",
         "published_at", "deleted_at", "deleted_by",
@@ -1654,7 +1655,7 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
     inlines = [DashboardRejectionLogInline]
     fieldsets = (
         (_("Basic information"), {"fields": ("name", "description", "icon", "template_type", "company", "created_by")}),
-        (_("Workflow"), {"fields": ("status", "submitted_at", "published_at", "reviewed_by")}),
+        (_("Workflow"), {"fields": ("status", "submitted_at", "published_at", "reviewed_by", "linked_dashboard")}),
         (_("Soft delete"), {"fields": ("is_deleted", "deleted_at", "deleted_by")}),
         (_("Report data"), {"fields": ("report_id", "html_file", "source_files", "upload_session")}),
         (_("Dates"), {"fields": ("created_at",)}),
@@ -1719,4 +1720,3 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
                 _("Restored %(count)d dashboard(s).") % {"count": restored},
                 messages.SUCCESS,
             )
-
