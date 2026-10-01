@@ -10232,8 +10232,26 @@ def generate_finance_report(
             out.push([period, fmtObsTrackingNum(opening), neuRaw, closedRaw, fmtObsTrackingNum(ending)]);
             continue;
           }}
-          const opening = parseObsTrackingNum(out[4][4]);
-          out.push([period, fmtObsTrackingNum(opening), "", "", fmtObsTrackingNum(opening)]);
+          // Ending Balance row (workbook row under Q4):
+          // Opening = Opening Balance row opening (C8=C3)
+          // New = SUM of New Observations through Q4 (D8=SUM(D3:D7))
+          // Closed = SUM of Closed Observations through Q4 (E8=SUM(E3:E7))
+          // Ending = Opening + New - Closed (F8=SUM(C8:D8)-E8)
+          const opening = parseObsTrackingNum(out[0][1]);
+          let sumNew = 0;
+          let sumClosed = 0;
+          for (let j = 0; j < 5; j++) {{
+            sumNew += parseObsTrackingNum(out[j][2]);
+            sumClosed += parseObsTrackingNum(out[j][3]);
+          }}
+          const ending = opening + sumNew - sumClosed;
+          out.push([
+            period,
+            fmtObsTrackingNum(opening),
+            fmtObsTrackingNum(sumNew),
+            fmtObsTrackingNum(sumClosed),
+            fmtObsTrackingNum(ending),
+          ]);
         }}
         return out;
       }}
@@ -10445,6 +10463,10 @@ def generate_finance_report(
           }} else {{
             if (tds[1]) tds[1].textContent = String(row[1] != null ? row[1] : "0");
             if (tds[4]) tds[4].textContent = String(row[4] != null ? row[4] : "0");
+          }}
+          if (r === 5) {{
+            if (tds[2]) tds[2].textContent = String(row[2] != null ? row[2] : "0");
+            if (tds[3]) tds[3].textContent = String(row[3] != null ? row[3] : "0");
           }}
         }}
       }}
