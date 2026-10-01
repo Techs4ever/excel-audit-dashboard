@@ -3239,14 +3239,266 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             });
         }
 
+        const AMBASSADOR_HEADERS = [
+            "رقم هاتف البديل",
+            "البريد الإلكتروني للبديل",
+            "اسم البديل (إن وجد)",
+            "رقم الهاتف",
+            "البريد الإلكتروني",
+            "المسمى الوظيفي",
+            "اسم سفير الالتزام",
+            "الإدارة",
+            "القطاع"
+        ];
+        const complianceAmbassadorsModal = document.getElementById("complianceAmbassadorsModal");
+        const complianceAmbassadorsEditor = document.getElementById("complianceAmbassadorsEditor");
+        const complianceAmbassadorsState = { rows: [] };
+        let complianceAmbassadorsDirty = false;
+
+        function blankAmbassadorRow() {
+            return AMBASSADOR_HEADERS.map(() => "");
+        }
+
+        function blankAmbassadorRows() {
+            return [blankAmbassadorRow()];
+        }
+
+        function ambassadorsEditable() {
+            const status = String(window.__AI_EXCEL_DASHBOARD_STATUS__ || "").trim().toLowerCase();
+            return status === "draft" && complianceCanSaveUserEdits();
+        }
+
+        function compactAmbassadorRows(rows) {
+            const fitted = (rows || []).map((row) => fitAmbassadorRow(row));
+            while (fitted.length > 1 && fitted[fitted.length - 1].every((cell) => cell === "")) {
+                fitted.pop();
+            }
+            if (!fitted.length || fitted.every((row) => row.every((cell) => cell === ""))) {
+                return [blankAmbassadorRow()];
+            }
+            return fitted;
+        }
+
+        function applyAmbassadorsEditChrome() {
+            const editable = ambassadorsEditable();
+            const tools = document.getElementById("complianceAmbassadorsTools");
+            const saveBtn = document.getElementById("complianceAmbassadorsSaveBtn");
+            if (tools) tools.hidden = !editable;
+            if (saveBtn) saveBtn.hidden = !editable;
+        }
+
+        function ambassadorCellText(value) {
+            if (value == null) return "";
+            if (typeof value === "number" && Number.isFinite(value)) {
+                if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+            }
+            return String(value).replace(/\s+/g, " ").trim();
+        }
+
+        function normalizeAmbassadorHeader(value) {
+            return ambassadorCellText(value).replace(/[()（）]/g, "");
+        }
+
+        function fitAmbassadorRow(row) {
+            const cells = Array.isArray(row) ? row.map((cell) => ambassadorCellText(cell)) : [];
+            while (cells.length < AMBASSADOR_HEADERS.length) cells.push("");
+            return cells.slice(0, AMBASSADOR_HEADERS.length);
+        }
+
+        function renderAmbassadorsTable() {
+            if (!complianceAmbassadorsEditor) return;
+            applyAmbassadorsEditChrome();
+            if (!complianceAmbassadorsState.rows.length) {
+                complianceAmbassadorsState.rows = blankAmbassadorRows();
+            }
+            const editable = ambassadorsEditable();
+            let thead = "<tr>";
+            AMBASSADOR_HEADERS.forEach((header) => {
+                thead += `<th>${escapeHtml(header)}</th>`;
+            });
+            if (editable) thead += `<th class="ambassadors-row-actions">إجراء</th>`;
+            thead += "</tr>";
+            let tbody = "";
+            complianceAmbassadorsState.rows.forEach((row, rIdx) => {
+                const cells = fitAmbassadorRow(row);
+                complianceAmbassadorsState.rows[rIdx] = cells;
+                tbody += "<tr>";
+                cells.forEach((cell, cIdx) => {
+                    if (editable) {
+                        tbody += `<td contenteditable="true" data-r="${rIdx}" data-c="${cIdx}">${escapeHtml(cell)}</td>`;
+                    } else {
+                        tbody += `<td>${escapeHtml(cell)}</td>`;
+                    }
+                });
+                if (editable) {
+                    tbody += `<td class="ambassadors-row-actions"><button type="button" class="tool-btn" data-remove-row="${rIdx}">حذف</button></td>`;
+                }
+                tbody += "</tr>";
+            });
+            complianceAmbassadorsEditor.innerHTML = `<table class="audit-table ambassadors-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+            if (!editable) return;
+            complianceAmbassadorsEditor.querySelectorAll("td[contenteditable]").forEach((td) => {
+                td.addEventListener("input", () => {
+                    const r = Number(td.dataset.r);
+                    const c = Number(td.dataset.c);
+                    complianceAmbassadorsState.rows[r][c] = td.textContent || "";
+                    complianceAmbassadorsDirty = true;
+                });
+            });
+            complianceAmbassadorsEditor.querySelectorAll("[data-remove-row]").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const r = Number(btn.getAttribute("data-remove-row"));
+                    complianceAmbassadorsState.rows.splice(r, 1);
+                    if (!complianceAmbassadorsState.rows.length) {
+                        complianceAmbassadorsState.rows = [blankAmbassadorRow()];
+                    }
+                    complianceAmbassadorsDirty = true;
+                    renderAmbassadorsTable();
+                });
+            });
+        }
+
+        function restoreAmbassadorsState() {
+            complianceAmbassadorsState.rows = blankAmbassadorRows();
+            try {
+                const embedded = document.getElementById("compliance-ambassadors-seed");
+                if (!embedded || !embedded.textContent) return;
+                const parsed = JSON.parse(embedded.textContent);
+                const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
+                if (!rows.length) return;
+                complianceAmbassadorsState.rows = compactAmbassadorRows(rows);
+            } catch (_e) {}
+        }
+
+        function loadAmbassadorsWorkbook(workbook) {
+            const sheetName = (workbook.SheetNames || [])[0];
+            if (!sheetName) return;
+            const aoa = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+            let headerRow = -1;
+            for (let i = 0; i < Math.min(aoa.length, 8); i += 1) {
+                const joined = (aoa[i] || []).map((cell) => ambassadorCellText(cell)).join(" ");
+                if (joined.includes("سفير") || (joined.includes("القطاع") && joined.includes("الإدارة"))) {
+                    headerRow = i;
+                    break;
+                }
+            }
+            const headers = (headerRow >= 0 ? aoa[headerRow] : []).map((cell) => normalizeAmbassadorHeader(cell));
+            const indexByHeader = AMBASSADOR_HEADERS.map((header) =>
+                headers.findIndex((cell) => cell === normalizeAmbassadorHeader(header))
+            );
+            const next = [];
+            const dataStart = headerRow >= 0 ? headerRow + 1 : 0;
+            for (let i = dataStart; i < aoa.length; i += 1) {
+                const source = aoa[i] || [];
+                const cells = AMBASSADOR_HEADERS.map((_header, idx) => {
+                    const sourceIdx = indexByHeader[idx] >= 0 ? indexByHeader[idx] : idx;
+                    return ambassadorCellText(source[sourceIdx]);
+                });
+                if (cells.some((cell) => cell !== "")) next.push(cells);
+            }
+            complianceAmbassadorsState.rows = next.length ? next : blankAmbassadorRows();
+            complianceAmbassadorsDirty = true;
+            renderAmbassadorsTable();
+        }
+
+        function closeAmbassadorsModal() {
+            if (!complianceAmbassadorsModal) return;
+            complianceAmbassadorsModal.style.display = "none";
+            const toggle = document.getElementById("complianceAmbassadorsToggle");
+            if (toggle) toggle.checked = false;
+            if (complianceAmbassadorsDirty && ambassadorsEditable()) {
+                void saveComplianceUserEdits({ ambassadors: true });
+            }
+        }
+
+        const ambassadorsFile = document.getElementById("complianceAmbassadorsFileInput");
+        if (ambassadorsFile) {
+            ambassadorsFile.addEventListener("change", async () => {
+                if (!ambassadorsEditable()) return;
+                const file = ambassadorsFile.files && ambassadorsFile.files[0];
+                if (!file) return;
+                const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+                loadAmbassadorsWorkbook(workbook);
+            });
+        }
+        const ambassadorsAddRow = document.getElementById("complianceAmbassadorsAddRowBtn");
+        if (ambassadorsAddRow) {
+            ambassadorsAddRow.addEventListener("click", () => {
+                if (!ambassadorsEditable()) return;
+                complianceAmbassadorsState.rows.push(blankAmbassadorRow());
+                complianceAmbassadorsDirty = true;
+                renderAmbassadorsTable();
+            });
+        }
+        const ambassadorsSaveBtn = document.getElementById("complianceAmbassadorsSaveBtn");
+        if (ambassadorsSaveBtn) {
+            ambassadorsSaveBtn.addEventListener("click", async () => {
+                if (!ambassadorsEditable()) return;
+                complianceAmbassadorsDirty = true;
+                await saveComplianceUserEdits({ ambassadors: true });
+            });
+        }
+        const ambassadorsClose = document.getElementById("complianceAmbassadorsModalClose");
+        if (ambassadorsClose) ambassadorsClose.addEventListener("click", closeAmbassadorsModal);
+        if (complianceAmbassadorsModal) {
+            complianceAmbassadorsModal.addEventListener("click", (event) => {
+                if (event.target === complianceAmbassadorsModal) closeAmbassadorsModal();
+            });
+        }
+        const ambassadorsToggle = document.getElementById("complianceAmbassadorsToggle");
+        if (ambassadorsToggle) {
+            ambassadorsToggle.addEventListener("change", (event) => {
+                if (event.target.checked) {
+                    complianceAmbassadorsModal.style.display = "flex";
+                    applyAmbassadorsEditChrome();
+                    renderAmbassadorsTable();
+                } else {
+                    closeAmbassadorsModal();
+                }
+            });
+        }
+
         function complianceCsrfToken() {
             const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
             return match ? decodeURIComponent(match[1]) : "";
         }
 
+        const complianceSaveStatusTimers = {};
+
         function setComplianceSaveStatus(elementId, text) {
             const node = document.getElementById(elementId);
-            if (node) node.textContent = text || "";
+            if (!node) return;
+            if (complianceSaveStatusTimers[elementId]) {
+                clearTimeout(complianceSaveStatusTimers[elementId]);
+                complianceSaveStatusTimers[elementId] = null;
+            }
+            node.textContent = text || "";
+            if (!text) return;
+            const holdMs = text === "تم الحفظ" ? 2200 : 3200;
+            complianceSaveStatusTimers[elementId] = setTimeout(() => {
+                if (node.textContent === text) node.textContent = "";
+                complianceSaveStatusTimers[elementId] = null;
+            }, holdMs);
+        }
+
+        function complianceUserEditsSaveUrl() {
+            const raw = window.__AI_EXCEL_USER_EDITS_SAVE_URL__;
+            if (typeof raw === "string") {
+                const url = raw.trim();
+                if (url && url !== "null") return url;
+            }
+            const path = String(window.location.pathname || "");
+            const match = path.match(/\/dashboards\/(\d+)\//);
+            if (!match) return "";
+            const base = path.replace(/\/serve\/?.*$/, "");
+            if (!base || base === path) return "";
+            return `${base.replace(/\/+$/, "")}/api/user-edits/`;
+        }
+
+        function complianceCanSaveUserEdits() {
+            const flag = window.__AI_EXCEL_CAN_SAVE_USER_EDITS__;
+            if (flag === false || flag === "false") return false;
+            return !!complianceUserEditsSaveUrl();
         }
 
         let complianceSaveChain = Promise.resolve();
@@ -3255,9 +3507,14 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             const opts = options || {};
             const planTouched = !!(flags && flags.plan);
             const quarterTouched = !!(flags && flags.quarter);
-            const statusId = planTouched ? "compliancePlanSaveStatus" : "complianceQuarterlySaveStatus";
-            const url = window.__AI_EXCEL_USER_EDITS_SAVE_URL__ || "";
-            const canSave = window.__AI_EXCEL_CAN_SAVE_USER_EDITS__ !== false && !!url;
+            const ambassadorsTouched = !!(flags && flags.ambassadors);
+            const statusId = ambassadorsTouched && !planTouched && !quarterTouched
+                ? "complianceAmbassadorsSaveStatus"
+                : planTouched
+                    ? "compliancePlanSaveStatus"
+                    : "complianceQuarterlySaveStatus";
+            const url = complianceUserEditsSaveUrl();
+            const canSave = complianceCanSaveUserEdits();
             if (!canSave) {
                 if (!opts.silent) setComplianceSaveStatus(statusId, "الحفظ غير متاح");
                 return Promise.resolve(false);
@@ -3279,7 +3536,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 },
                 compliancePlanTouched: planTouched,
                 complianceQuarterly: { rows: complianceQuarterlyState.rows },
-                complianceQuarterlyTouched: quarterTouched
+                complianceQuarterlyTouched: quarterTouched,
+                complianceAmbassadors: { rows: complianceAmbassadorsState.rows },
+                complianceAmbassadorsTouched: ambassadorsTouched
             };
             const run = () => fetch(url, {
                 method: "POST",
@@ -3294,6 +3553,7 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 if (!response.ok) throw new Error("save failed");
                 if (planTouched) compliancePlanDirty = false;
                 if (quarterTouched) complianceQuarterlyDirty = false;
+                if (ambassadorsTouched) complianceAmbassadorsDirty = false;
                 if (!opts.silent) setComplianceSaveStatus(statusId, "تم الحفظ");
                 return true;
             }).catch(() => {
@@ -3307,8 +3567,12 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         window.__aiExcelSaveUserEditsNow = function () {
             const plan = compliancePlanDirty;
             const quarter = complianceQuarterlyDirty;
-            if (!plan && !quarter) return Promise.resolve(true);
-            return saveComplianceUserEdits({ plan: plan, quarter: quarter }, { silent: true, keepalive: true });
+            const ambassadors = complianceAmbassadorsDirty;
+            if (!plan && !quarter && !ambassadors) return Promise.resolve(true);
+            return saveComplianceUserEdits(
+                { plan: plan, quarter: quarter, ambassadors: ambassadors },
+                { silent: true, keepalive: true }
+            );
         };
 
         function complianceBase64Bytes(data) {
@@ -3540,6 +3804,8 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         }
         restoreCompliancePlanState();
         restoreQuarterlyState();
+        restoreAmbassadorsState();
+        applyAmbassadorsEditChrome();
         initComplianceAttachments();
         try {
             localStorage.removeItem("compliancePlanEditor.v1");

@@ -137,6 +137,10 @@
                     <input type="checkbox" id="complianceQuarterlyToggle">
                     تقرير متابعة حالة الالتزام الربعي
                 </label>
+                <label class="inline-check audit">
+                    <input type="checkbox" id="complianceAmbassadorsToggle">
+                    سفراء الالتزام
+                </label>
                 <span id="complianceAttachmentToggles" class="compliance-attachment-toggles"></span>
                 <label class="inline-check">
                     <input type="checkbox" id="finalStatusToggle">
@@ -379,6 +383,27 @@
                     <input id="complianceQuarterlyFileInput" type="file" accept=".xlsx,.xls" />
                 </div>
                 <div id="complianceQuarterlyEditor" class="aging-matrix-wrap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="complianceAmbassadorsModal" class="modal-overlay" role="dialog" aria-modal="true" style="z-index: 68;">
+        <div class="modal modal-wide">
+            <div class="modal-header" style="background:#1e3a5f; border-bottom:1px solid #0f2744;">
+                <h3 class="modal-title" style="font-size:20px;">سفراء الالتزام</h3>
+                <div class="modal-toolbar">
+                    <button id="complianceAmbassadorsSaveBtn" type="button" class="modal-close" style="background:#2a6499;color:#fff;border-color:#2a6499;">حفظ</button>
+                    <span id="complianceAmbassadorsSaveStatus" class="compliance-save-status"></span>
+                    <button id="complianceAmbassadorsModalClose" type="button" class="modal-close">إغلاق</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="complianceAmbassadorsTools" class="control-group" style="margin-bottom:10px;">
+                    <label for="complianceAmbassadorsFileInput">رفع ملف إكسل</label>
+                    <input id="complianceAmbassadorsFileInput" type="file" accept=".xlsx,.xls" />
+                    <button id="complianceAmbassadorsAddRowBtn" class="tool-btn" type="button">إضافة صف</button>
+                </div>
+                <div id="complianceAmbassadorsEditor" class="aging-matrix-wrap"></div>
             </div>
         </div>
     </div>

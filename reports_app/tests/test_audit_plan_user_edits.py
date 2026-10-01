@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -94,11 +95,41 @@ class AuditPlanUserEditsTests(TestCase):
         self.assertEqual(payload["planRows"][0][5], "25%")
         self.assertEqual(payload["planRows"][0][6], "75%")
 
+    def test_multiline_plan_cell_is_preserved(self):
+        payload = validate_dashboard_user_edits_payload(
+            {
+                "v": 1,
+                "planRows": [
+                    ["Line one\nLine two", "Finance", "Bob", "Open", "50%\nnote", "20%", "10%"],
+                ],
+                "planCellBg": [],
+                "reviewsNote": "",
+            }
+        )
+        self.assertEqual(payload["planRows"][0][0], "Line one\nLine two")
+        self.assertEqual(payload["planRows"][0][4], "50%\nnote")
+
     def test_inject_user_edits_persist_script_inserts_json_block(self):
         html = "<html><body><div>ok</div></body></html>"
         out = inject_user_edits_persist_script(html, '{"v":1,"planRows":[]}')
         self.assertIn('id="audit-dashboard-user-persist"', out)
         self.assertIn('"planRows":[]', out)
+
+    def test_inject_user_edits_persist_script_keeps_cell_newline(self):
+        raw = json.dumps(
+            {"v": 1, "planRows": [["Line one\nLine two"]]},
+            ensure_ascii=False,
+        )
+        html = "<html><body><div>ok</div></body></html>"
+        out = inject_user_edits_persist_script(html, raw)
+        match = re.search(
+            r'<script id="audit-dashboard-user-persist"[^>]*>(.*?)</script>',
+            out,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        parsed = json.loads(match.group(1))
+        self.assertEqual(parsed["planRows"][0][0], "Line one\nLine two")
 
     def test_inject_dashboard_serve_context_sets_save_flags(self):
         html = (
@@ -118,6 +149,41 @@ class AuditPlanUserEditsTests(TestCase):
         self.assertIn("http://test/save", out)
         self.assertIn("__AI_EXCEL_CAN_SAVE_USER_EDITS__=true", out)
         self.assertIn('"planRows":[["P","A","","","","",""]]', out)
+
+    def test_inject_dashboard_status_marker(self):
+        html = '<html><head>window.__AI_EXCEL_DASHBOARD_STATUS__="";</head></html>'
+        out = inject_dashboard_serve_context(
+            html,
+            mail_url="http://test/api/mail",
+            plan_url="http://test/api/plan",
+            user_edits_save_url="",
+            can_save_user_edits=False,
+            dashboard_status="published",
+        )
+        self.assertIn('window.__AI_EXCEL_DASHBOARD_STATUS__="published";', out)
+
+    def test_non_draft_does_not_replace_ambassador_rows(self):
+        raw = {
+            "v": 1,
+            "planRows": [],
+            "complianceAmbassadorsTouched": False,
+            "complianceAmbassadors": {"rows": [["جديد", "", "", "", "", "", "", "", ""]]},
+        }
+        merged = merge_preserved_user_edits(
+            "{}",
+            raw,
+            validate_dashboard_user_edits_payload(raw),
+        )
+        self.assertEqual(merged["complianceAmbassadors"]["rows"], [])
+        kept = merge_preserved_user_edits(
+            json.dumps(
+                {"complianceAmbassadors": {"rows": [["محفوظ", "", "", "", "", "", "", "", ""]]}},
+                ensure_ascii=False,
+            ),
+            raw,
+            validate_dashboard_user_edits_payload(raw),
+        )
+        self.assertEqual(kept["complianceAmbassadors"]["rows"][0][0], "محفوظ")
 
     def test_compliance_page_that_reads_save_url_still_receives_it(self):
         html = (
@@ -345,6 +411,59 @@ class AuditPlanUserEditsTests(TestCase):
         out = inject_compliance_editor_seeds(html, stored)
         self.assertIn("S", out)
         self.assertIn("الربع الاول", out)
+
+    def test_ambassadors_rows_are_normalized_and_preserved(self):
+        raw = {
+            "v": 1,
+            "planRows": [],
+            "complianceAmbassadorsTouched": True,
+            "complianceAmbassadors": {
+                "rows": [[" 0550000000 ", "alt@example.com", "بديل", "0500000000", "a@example.com", "أخصائي", "سفير", "المالية", "القطاع"]],
+            },
+        }
+        normalized = validate_dashboard_user_edits_payload(raw)
+        self.assertEqual(len(normalized["complianceAmbassadors"]["rows"][0]), 9)
+        self.assertEqual(normalized["complianceAmbassadors"]["rows"][0][0], "0550000000")
+        self.assertEqual(normalized["complianceAmbassadors"]["rows"][0][6], "سفير")
+
+        existing = {
+            "v": 1,
+            "planRows": [],
+            "complianceQuarterly": {"rows": [["الربع الاول", "5", "1", "0", "0", "6"]]},
+            "complianceAmbassadors": {"rows": [["1", "2", "3", "4", "5", "6", "محفوظ", "8", "9"]]},
+        }
+        quarter_only = {
+            "v": 1,
+            "planRows": [],
+            "complianceQuarterlyTouched": True,
+            "complianceAmbassadorsTouched": False,
+            "complianceQuarterly": {"rows": [["الربع الاول", "9", "0", "0", "0", "9"]]},
+            "complianceAmbassadors": {"rows": []},
+        }
+        merged = merge_preserved_user_edits(
+            json.dumps(existing),
+            quarter_only,
+            validate_dashboard_user_edits_payload(quarter_only),
+        )
+        self.assertEqual(merged["complianceQuarterly"]["rows"][0][1], "9")
+        self.assertEqual(merged["complianceAmbassadors"]["rows"][0][6], "محفوظ")
+
+        saved = merge_preserved_user_edits(
+            json.dumps(existing),
+            raw,
+            normalized,
+        )
+        self.assertEqual(saved["complianceAmbassadors"]["rows"][0][6], "سفير")
+        self.assertEqual(saved["complianceQuarterly"]["rows"][0][1], "5")
+
+    def test_ambassadors_seed_is_injected_from_user_edits(self):
+        html = '<script type="application/json" id="compliance-ambassadors-seed">{}</script>'
+        stored = json.dumps(
+            {"complianceAmbassadors": {"rows": [["", "", "", "", "", "", "نورة", "", ""]]}},
+            ensure_ascii=False,
+        )
+        out = inject_compliance_editor_seeds(html, stored)
+        self.assertIn("نورة", out)
 
     def test_attachment_slots_follow_dashboard_template(self):
         iad = [spec["kind"] for spec in attachment_specs_for_template("IAD")]

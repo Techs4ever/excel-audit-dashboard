@@ -9,6 +9,7 @@ import pandas as pd
 
 from ai_excel_dashboard import (
     _CAN_SAVE_USER_EDITS_MARKER,
+    _DASHBOARD_STATUS_MARKER,
     _USER_EDITS_SAVE_MARKER,
 )
 from site_robots import ROBOTS_META_HTML
@@ -111,6 +112,7 @@ def generate_ar_compliance_report(
         "compliance-plan-seed",
     )
     extra_scripts += _json_script_tag({"rows": []}, "compliance-quarterly-seed")
+    extra_scripts += _json_script_tag({"rows": []}, "compliance-ambassadors-seed")
     extra_scripts += _json_script_tag(
         attachments if isinstance(attachments, dict) else {"kinds": []},
         "compliance-attachments",
@@ -124,6 +126,7 @@ def generate_ar_compliance_report(
 {ROBOTS_META_HTML}    <title>نتائج التحليل</title>
     <script>{_USER_EDITS_SAVE_MARKER}</script>
     <script>{_CAN_SAVE_USER_EDITS_MARKER}</script>
+    <script>{_DASHBOARD_STATUS_MARKER}</script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

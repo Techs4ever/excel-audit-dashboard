@@ -71,6 +71,7 @@ _MAIL_API_MARKER = "window.__AI_EXCEL_MAIL_API__=null;"
 _PLAN_PARSE_API_MARKER = "window.__AI_EXCEL_PLAN_PARSE_URL__=null;"
 _USER_EDITS_SAVE_MARKER = "window.__AI_EXCEL_USER_EDITS_SAVE_URL__=null;"
 _CAN_SAVE_USER_EDITS_MARKER = "window.__AI_EXCEL_CAN_SAVE_USER_EDITS__=false;"
+_DASHBOARD_STATUS_MARKER = 'window.__AI_EXCEL_DASHBOARD_STATUS__="";'
 _USER_EDITS_SAVE_META_MARKER = "__AI_EXCEL_USER_EDITS_SAVE_META__"
 _CAN_SAVE_USER_EDITS_META_MARKER = "__AI_EXCEL_CAN_SAVE_USER_EDITS_META__"
 _SMTP_HELPER_HOST = "127.0.0.1"
@@ -5447,6 +5448,12 @@ def generate_finance_report(
       text-align: left;
       font-weight: 700;
     }}
+    #audit-plan-table.audit-aging-table td[contenteditable="true"],
+    #audit-obs-tracking-table.audit-aging-table td[contenteditable="true"] {{
+      white-space: pre-wrap;
+      word-break: break-word;
+      vertical-align: top;
+    }}
     .audit-plan-colortools {{
       display: flex;
       flex-wrap: wrap;
@@ -9581,6 +9588,50 @@ def generate_finance_report(
           try {{ agingClose.focus(); }} catch (_af) {{}}
         }}
       }}
+      function normalizeCellNewlines(value) {{
+        return String(value == null ? "" : value).replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n");
+      }}
+      function readEditableCellText(td) {{
+        if (!td) return "";
+        const parts = [];
+        function walk(node) {{
+          for (let i = 0; i < node.childNodes.length; i++) {{
+            const child = node.childNodes[i];
+            if (child.nodeType === 3) {{
+              parts.push(child.nodeValue || "");
+              continue;
+            }}
+            if (child.nodeType !== 1) continue;
+            const tag = child.tagName;
+            if (tag === "BR") {{
+              parts.push("\\n");
+              continue;
+            }}
+            if (tag === "DIV" || tag === "P") {{
+              if (parts.length && parts[parts.length - 1] !== "\\n") parts.push("\\n");
+              walk(child);
+              if (parts.length && parts[parts.length - 1] !== "\\n") parts.push("\\n");
+              continue;
+            }}
+            walk(child);
+          }}
+        }}
+        walk(td);
+        return normalizeCellNewlines(parts.join("")).replace(/^\\n+|\\n+$/g, "");
+      }}
+      function wireEditableCellEnter(td) {{
+        td.addEventListener("keydown", function (ev) {{
+          if (ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+          ev.preventDefault();
+          try {{
+            if (document.queryCommandSupported && document.queryCommandSupported("insertLineBreak")) {{
+              document.execCommand("insertLineBreak");
+            }} else {{
+              document.execCommand("insertHTML", false, "<br>");
+            }}
+          }} catch (_br) {{}}
+        }});
+      }}
       function capturePlanDraftRows() {{
         if (!planBodyRows) return planDraftRows;
         const trs = Array.from(planBodyRows.querySelectorAll("tr"));
@@ -9589,8 +9640,9 @@ def generate_finance_report(
         const out = [];
         trs.forEach(function (tr) {{
           const tds = Array.from(tr.querySelectorAll("td"));
-          if (tds.length < 7) return;
-          out.push(tds.slice(0, 7).map(function (td) {{ return String(td.textContent || "").trim(); }}));
+          const cells = [];
+          for (let c = 0; c < 7; c++) cells.push(tds[c] ? readEditableCellText(tds[c]) : "");
+          out.push(cells);
         }});
         planDraftRows = out;
         return planDraftRows;
@@ -9633,7 +9685,7 @@ def generate_finance_report(
               return disp + "%";
             }}
           }}
-          return s.replace(/\\s+/g, "");
+          return s;
         }}
         const m2 = s.match(/^([\\d.,]+)$/);
         if (m2) {{
@@ -9718,6 +9770,7 @@ def generate_finance_report(
             mapped[i] = String(pos[i]);
           }}
         }}
+        for (let n = 0; n < mapped.length; n++) mapped[n] = normalizeCellNewlines(mapped[n]);
         return formatPlanPctInRow(mapped);
       }}
       function matrixToPlanRecords(matrix) {{
@@ -10110,6 +10163,7 @@ def generate_finance_report(
             td.textContent = String(v);
             td.setAttribute("contenteditable", "true");
             td.spellcheck = false;
+            wireEditableCellEnter(td);
             td.addEventListener("input", persistAuditUserEdits);
             (function (rowIdx, colIdx) {{
               td.addEventListener("click", function () {{
@@ -10201,10 +10255,16 @@ def generate_finance_report(
       }}
       function parseObsTrackingNum(v) {{
         if (v == null || v === "") return 0;
-        const s = String(v).replace(/,/g, "").trim();
+        const s = normalizeCellNewlines(v).split("\\n")[0].replace(/,/g, "").trim();
         if (!s) return 0;
         const n = Number(s);
         return Number.isFinite(n) ? n : 0;
+      }}
+      function obsCellDisplay(raw, numeric) {{
+        const s = normalizeCellNewlines(raw == null ? "" : raw).replace(/^\\n+|\\n+$/g, "");
+        if (!s) return "";
+        if (/[\\n]/.test(s) || !/^-?[\\d.,]+$/.test(s)) return s;
+        return fmtObsTrackingNum(numeric);
       }}
       function fmtObsTrackingNum(n) {{
         if (!Number.isFinite(n)) return "0";
@@ -10219,7 +10279,8 @@ def generate_finance_report(
           const period = periods[i] || String(src[0] || "");
           if (i === 0) {{
             const opening = parseObsTrackingNum(src[1] != null ? src[1] : "0");
-            out.push([period, fmtObsTrackingNum(opening), "", "", fmtObsTrackingNum(opening)]);
+            const openingShown = obsCellDisplay(src[1], opening) || "0";
+            out.push([period, openingShown, "", "", fmtObsTrackingNum(opening)]);
             continue;
           }}
           if (i >= 1 && i <= 4) {{
@@ -10227,8 +10288,8 @@ def generate_finance_report(
             const neu = parseObsTrackingNum(src[2]);
             const closed = parseObsTrackingNum(src[3]);
             const ending = opening + neu - closed;
-            const neuRaw = src[2] != null && String(src[2]).trim() !== "" ? fmtObsTrackingNum(neu) : "";
-            const closedRaw = src[3] != null && String(src[3]).trim() !== "" ? fmtObsTrackingNum(closed) : "";
+            const neuRaw = obsCellDisplay(src[2], neu);
+            const closedRaw = obsCellDisplay(src[3], closed);
             out.push([period, fmtObsTrackingNum(opening), neuRaw, closedRaw, fmtObsTrackingNum(ending)]);
             continue;
           }}
@@ -10279,7 +10340,7 @@ def generate_finance_report(
           const tr = trs[i];
           const tds = tr ? tr.querySelectorAll("td") : [];
           const get = function (idx) {{
-            return tds[idx] ? String(tds[idx].textContent || "").trim() : "";
+            return tds[idx] ? readEditableCellText(tds[idx]) : "";
           }};
           rows.push([periods[i] || get(0), get(1), get(2), get(3), get(4)]);
         }}
@@ -10498,6 +10559,7 @@ def generate_finance_report(
             if (editable) {{
               td.setAttribute("contenteditable", "true");
               td.spellcheck = false;
+              wireEditableCellEnter(td);
               td.addEventListener("input", function () {{
                 try {{ syncObsTrackingComputedCells(); }} catch (_re) {{}}
                 try {{ persistAuditUserEdits(); }} catch (_pe) {{}}

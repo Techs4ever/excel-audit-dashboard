@@ -15,6 +15,7 @@ from django.utils.text import get_valid_filename
 from ai_excel_dashboard import (
     _CAN_SAVE_USER_EDITS_MARKER,
     _CAN_SAVE_USER_EDITS_META_MARKER,
+    _DASHBOARD_STATUS_MARKER,
     _MAIL_API_MARKER,
     _PLAN_PARSE_API_MARKER,
     _USER_EDITS_SAVE_MARKER,
@@ -418,15 +419,13 @@ def inject_user_edits_persist_script(html_out: str, user_edits_json: str) -> str
         html_out,
         flags=re.DOTALL,
     )
-    if re.search(r"<body\b", cleaned, flags=re.IGNORECASE):
-        return re.sub(
-            r"(<body[^>]*>)",
-            r"\1\n" + script,
-            cleaned,
-            count=1,
-            flags=re.IGNORECASE,
-        )
-    return script + cleaned
+    # Do not pass JSON through re.sub replacement: \n in the saved text
+    # would become a raw newline and the next page load would drop the table.
+    match = re.search(r"<body[^>]*>", cleaned, flags=re.IGNORECASE)
+    if not match:
+        return script + cleaned
+    end = match.end()
+    return cleaned[:end] + "\n" + script + cleaned[end:]
 
 
 def _inject_before_head_close(html_out: str, snippet: str) -> str:
@@ -450,7 +449,7 @@ def _replace_json_script(html_out: str, element_id: str, data: dict) -> str:
         re.IGNORECASE,
     )
     if pattern.search(html_out):
-        return pattern.sub(tag, html_out, count=1)
+        return pattern.sub(lambda _match: tag, html_out, count=1)
     return html_out
 
 
@@ -472,6 +471,12 @@ def inject_compliance_editor_seeds(html_out: str, user_edits_json: str) -> str:
         html_out,
         "compliance-quarterly-seed",
         quarterly if isinstance(quarterly, dict) else {"rows": []},
+    )
+    ambassadors = parsed.get("complianceAmbassadors")
+    html_out = _replace_json_script(
+        html_out,
+        "compliance-ambassadors-seed",
+        ambassadors if isinstance(ambassadors, dict) else {"rows": []},
     )
     return html_out
 
@@ -511,6 +516,7 @@ def inject_dashboard_serve_context(
     can_save_user_edits: bool,
     user_edits_json: str = "",
     allowed_attachment_kinds: set[str] | frozenset[str] | None = None,
+    dashboard_status: str = "",
 ) -> str:
     h = inject_web_mail_api(html_out, mail_url, plan_url)
     if allowed_attachment_kinds is not None:
@@ -522,6 +528,10 @@ def inject_dashboard_serve_context(
     )
     save_meta = html_escape(user_edits_save_url or "", quote=True)
     can_meta = "true" if can_save_user_edits else "false"
+    status_js = (
+        "window.__AI_EXCEL_DASHBOARD_STATUS__="
+        f"{json.dumps(str(dashboard_status or ''))};"
+    )
     try:
         if _USER_EDITS_SAVE_MARKER in h:
             h = h.replace(_USER_EDITS_SAVE_MARKER, save_js)
@@ -533,6 +543,8 @@ def inject_dashboard_serve_context(
             h = h.replace(_USER_EDITS_SAVE_META_MARKER, save_meta)
         if _CAN_SAVE_USER_EDITS_META_MARKER in h:
             h = h.replace(_CAN_SAVE_USER_EDITS_META_MARKER, can_meta)
+        if _DASHBOARD_STATUS_MARKER in h:
+            h = h.replace(_DASHBOARD_STATUS_MARKER, status_js)
         if user_edits_json and str(user_edits_json).strip():
             h = inject_user_edits_persist_script(h, user_edits_json)
             h = inject_compliance_editor_seeds(h, user_edits_json)
@@ -566,7 +578,7 @@ def _format_plan_pct_cell(value) -> str:
             rounded = round(num, 2)
             disp = str(int(rounded)) if rounded == int(rounded) else str(rounded)
             return f"{disp}%"
-        return re.sub(r"\s+", "", s)
+        return s
     m2 = re.match(r"^([\d.,]+)$", s)
     if m2:
         num = float(m2.group(1).replace(",", "."))
@@ -630,6 +642,7 @@ def validate_dashboard_user_edits_payload(data: dict) -> dict:
         "obsTrackingRows": obs_tracking_out,
         "compliancePlan": _normalize_compliance_plan(data.get("compliancePlan")),
         "complianceQuarterly": _normalize_compliance_quarterly(data.get("complianceQuarterly")),
+        "complianceAmbassadors": _normalize_compliance_ambassadors(data.get("complianceAmbassadors")),
     }
 
 
@@ -688,6 +701,34 @@ def _normalize_compliance_quarterly(raw) -> dict:
 
 def _compliance_plan_has_rows(plan: dict) -> bool:
     for row in (plan or {}).get("rows") or []:
+        if isinstance(row, list) and any(str(cell).strip() for cell in row):
+            return True
+    return False
+
+
+_AMBASSADOR_COLS = 9
+_AMBASSADOR_MAX_ROWS = 200
+_AMBASSADOR_CELL_MAX = 500
+
+
+def _normalize_compliance_ambassadors(raw) -> dict:
+    """Keep the compliance-ambassadors register: one row per ambassador, nine columns."""
+    source = raw.get("rows") if isinstance(raw, dict) else None
+    if not isinstance(source, list):
+        source = []
+    rows_out: list[list[str]] = []
+    for row in source[:_AMBASSADOR_MAX_ROWS]:
+        if not isinstance(row, list):
+            row = []
+        cells = [str(c if c is not None else "").strip()[:_AMBASSADOR_CELL_MAX] for c in row[:_AMBASSADOR_COLS]]
+        while len(cells) < _AMBASSADOR_COLS:
+            cells.append("")
+        rows_out.append(cells)
+    return {"rows": rows_out}
+
+
+def _compliance_ambassadors_has_rows(block: dict) -> bool:
+    for row in (block or {}).get("rows") or []:
         if isinstance(row, list) and any(str(cell).strip() for cell in row):
             return True
     return False
@@ -796,6 +837,26 @@ def merge_preserved_user_edits(existing_json: str, raw: dict, payload: dict) -> 
         quarter_flag is None and not _compliance_quarterly_has_movement(incoming_quarter)
     ):
         payload["complianceQuarterly"] = stored_quarter or incoming_quarter
+
+    stored_ambassadors = (
+        existing.get("complianceAmbassadors")
+        if isinstance(existing.get("complianceAmbassadors"), dict)
+        else {}
+    )
+    incoming_ambassadors = (
+        payload.get("complianceAmbassadors")
+        if isinstance(payload.get("complianceAmbassadors"), dict)
+        else {}
+    )
+    ambassadors_flag = raw.get("complianceAmbassadorsTouched")
+    if ambassadors_flag is False:
+        payload["complianceAmbassadors"] = (
+            stored_ambassadors
+            if _compliance_ambassadors_has_rows(stored_ambassadors)
+            else {"rows": []}
+        )
+    elif ambassadors_flag is None and not _compliance_ambassadors_has_rows(incoming_ambassadors):
+        payload["complianceAmbassadors"] = stored_ambassadors or incoming_ambassadors
 
     return payload
 

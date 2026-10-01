@@ -539,6 +539,7 @@ def _inject_served_dashboard_html(
         can_save_user_edits=can_save,
         user_edits_json=dashboard.user_edits_json or "",
         allowed_attachment_kinds=allowed_kinds,
+        dashboard_status=dashboard.status or "",
     )
 
 
@@ -759,6 +760,9 @@ def dashboard_user_edits(request, pk: int):
     try:
         raw = request.body.decode("utf-8") if request.body else ""
         data = json.loads(raw or "{}")
+        if dashboard.status != DashboardStatus.DRAFT and isinstance(data, dict):
+            data = dict(data)
+            data["complianceAmbassadorsTouched"] = False
         payload = validate_dashboard_user_edits_payload(data)
         payload = merge_preserved_user_edits(
             dashboard.user_edits_json or "",
