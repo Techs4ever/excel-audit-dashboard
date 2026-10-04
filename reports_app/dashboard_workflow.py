@@ -43,6 +43,7 @@ FILTER_PUBLISHED = "published"
 FILTER_MINE = "mine"
 FILTER_REJECTED = "rejected"
 FILTER_DRAFT = "draft"
+FILTER_HIDDEN = "hidden"
 
 _REVIEWABLE_STATUSES = (DashboardStatus.UNDER_REVIEW,)
 _PRIVATE_CREATOR_STATUSES = (
@@ -120,12 +121,25 @@ def has_dashboard_list_perm(
         or has_assign_viewers_perm(user, company, template_code)
         or has_view_own_only_perm(user, company, template_code)
         or has_upload_perm(user, company, template_code)
+        or has_hide_perm(user, company, template_code)
         or user_has_dashboard_viewer_grant(user, company, template_code)
     )
 
 
 def has_delete_perm(user) -> bool:
     return user.is_superuser
+
+
+def has_hide_perm(
+    user, company: Company | None = None, template_code: str | None = None
+) -> bool:
+    if not active_companies_exist():
+        return False
+    if user.is_superuser:
+        return True
+    if company is None:
+        return False
+    return has_company_perm(user, company, "hide", template_code)
 
 
 def has_delete_draft_perm(
@@ -214,7 +228,19 @@ def _visibility_q(user, company: Company | None) -> Q:
 
     q |= _published_viewer_q(user)
 
+    hide_codes = template_codes_with_perm(user, company, "hide")
+    if hide_codes:
+        q |= Q(template_type__in=hide_codes)
+
     return q
+
+
+def _hidden_visibility_q(user, company: Company | None) -> Q:
+    """Hidden dashboards stay visible only to members who can hide that template."""
+    hide_codes = template_codes_with_perm(user, company, "hide")
+    if not hide_codes:
+        return Q(is_hidden=False)
+    return Q(is_hidden=False) | Q(template_type__in=hide_codes)
 
 
 def user_can_see_dashboard(user, dashboard: Dashboard, company: Company | None = None) -> bool:
@@ -228,8 +254,11 @@ def user_can_see_dashboard(user, dashboard: Dashboard, company: Company | None =
         return False
 
     active = company or dashboard.company
-
     if user.is_superuser:
+        return True
+    if dashboard.is_hidden and not has_hide_perm(user, active, dashboard.template_type):
+        return False
+    if has_hide_perm(user, active, dashboard.template_type):
         return True
 
     if dashboard.status in _PRIVATE_CREATOR_STATUSES:
@@ -262,7 +291,9 @@ def dashboards_queryset_for_user(user, company: Company | None = None) -> QueryS
     if user.is_superuser:
         return qs
 
-    return qs.filter(_visibility_q(user, company)).distinct()
+    return qs.filter(_visibility_q(user, company)).filter(
+        _hidden_visibility_q(user, company)
+    ).distinct()
 
 
 def filter_dashboards_queryset(
@@ -272,6 +303,9 @@ def filter_dashboards_queryset(
     filter_key: str,
 ) -> QuerySet[Dashboard]:
     key = (filter_key or FILTER_ALL).strip() or FILTER_ALL
+    if key == FILTER_HIDDEN:
+        return qs.filter(is_hidden=True)
+    qs = qs.filter(is_hidden=False)
     if key == FILTER_ALL:
         return qs
     if key == FILTER_PENDING_REVIEW:
@@ -294,6 +328,7 @@ def available_dashboard_filters(
     template_code: str | None = None,
 ) -> list[dict[str, Any]]:
     qs = base_qs if base_qs is not None else dashboards_queryset_for_user(user, company)
+    visible = qs.filter(is_hidden=False)
     filters: list[dict[str, Any]] = []
     can_review = has_review_perm(user, company, template_code)
     can_assign = has_assign_viewers_perm(user, company, template_code)
@@ -304,10 +339,10 @@ def available_dashboard_filters(
         if count > 0 or key == FILTER_ALL:
             filters.append({"key": key, "label_key": label_key, "count": count})
 
-    add(FILTER_ALL, "dl_filter_all", qs)
+    add(FILTER_ALL, "dl_filter_all", visible)
 
     if can_review:
-        pending = qs.filter(status=DashboardStatus.UNDER_REVIEW)
+        pending = visible.filter(status=DashboardStatus.UNDER_REVIEW)
         if pending.exists() or len(filters) > 1:
             filters.append(
                 {
@@ -323,7 +358,7 @@ def available_dashboard_filters(
         or user_has_dashboard_viewer_grant(user, company, template_code)
     )
     if show_published_filter:
-        published = qs.filter(status=DashboardStatus.PUBLISHED)
+        published = visible.filter(status=DashboardStatus.PUBLISHED)
         if published.exists() or (can_review and len(filters) > 1):
             filters.append(
                 {
@@ -333,7 +368,7 @@ def available_dashboard_filters(
                 }
             )
 
-    mine = qs.filter(created_by=user)
+    mine = visible.filter(created_by=user)
     if mine.exists() and (can_upload or can_review):
         if not (len(filters) == 2 and filters[0]["key"] == FILTER_ALL):
             filters.append(
@@ -344,7 +379,7 @@ def available_dashboard_filters(
                 }
             )
 
-    rejected = qs.filter(status=DashboardStatus.REJECTED, created_by=user)
+    rejected = visible.filter(status=DashboardStatus.REJECTED, created_by=user)
     if rejected.exists():
         filters.append(
             {
@@ -355,7 +390,7 @@ def available_dashboard_filters(
         )
 
     if user.is_superuser:
-        drafts = qs.filter(status=DashboardStatus.DRAFT)
+        drafts = visible.filter(status=DashboardStatus.DRAFT)
         if drafts.exists():
             filters.append(
                 {
@@ -364,6 +399,16 @@ def available_dashboard_filters(
                     "count": drafts.count(),
                 }
             )
+
+    if has_hide_perm(user, company, template_code):
+        filters.append(
+            {
+                "key": FILTER_HIDDEN,
+                "label_key": "dl_filter_hidden",
+                "count": qs.filter(is_hidden=True).count(),
+                "tone": "danger",
+            }
+        )
 
     if len(filters) <= 1:
         return []
@@ -587,11 +632,20 @@ def can_user_manage_review_attachments(
     dashboard: Dashboard,
     company: Company | None = None,
 ) -> bool:
-    """Reviewer may add/replace/remove deck attachments while pending approval."""
-    return (
+    """Approver may add, replace, or remove attachments while pending or after publish."""
+    if (
         can_user_review(user, dashboard, company)
         and dashboard.status == DashboardStatus.UNDER_REVIEW
-    )
+    ):
+        return True
+    active = company or dashboard.company
+    if dashboard.is_deleted or dashboard.status != DashboardStatus.PUBLISHED:
+        return False
+    if not has_review_perm(user, active, dashboard.template_type):
+        return False
+    if active is not None and dashboard.company_id != active.id and not user.is_superuser:
+        return False
+    return True
 
 
 def can_user_review(user, dashboard: Dashboard, company: Company | None = None) -> bool:

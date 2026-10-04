@@ -116,6 +116,12 @@
     border: 1px solid #93c5fd;
 }
 
+.badge-status-hidden {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
 .dashboard-filter-bar {
     display: flex;
     flex-wrap: wrap;
@@ -162,6 +168,34 @@
 }
 
 .dashboard-filter-chip.is-active .dashboard-filter-count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+
+.dashboard-filter-chip--danger {
+    color: #b91c1c;
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.dashboard-filter-chip--danger:hover {
+    color: #991b1b;
+    border-color: #ef4444;
+}
+
+.dashboard-filter-chip--danger .dashboard-filter-count {
+    background: #fecaca;
+    color: #991b1b;
+}
+
+.dashboard-filter-chip--danger.is-active,
+.dashboard-filter-chip--danger.is-active:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+}
+
+.dashboard-filter-chip--danger.is-active .dashboard-filter-count {
     background: rgba(255, 255, 255, 0.22);
     color: #fff;
 }
@@ -397,6 +431,19 @@ html[dir="rtl"] .db-card-wrap.is-deleted {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+}
+
+.db-card .db-card-name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+}
+
+.db-card-wrap.is-hidden {
+    opacity: 0.78;
 }
 
 .db-card .dc-date {

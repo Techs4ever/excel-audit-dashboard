@@ -4,7 +4,7 @@
 
 {% block page_title %}
 <div class="breadcrumb-nav">
-    <a href="{% url 'dashboard_list' %}">
+    <a href="{% url 'dashboard_list' %}{% if dashboard.template_type %}?template={{ dashboard.template_type }}{% endif %}">
         <i class="bi bi-grid-3x3-gap-fill me-1"></i>{{ ui.dd_breadcrumb }}
     </a>
     <span class="sep"><i class="bi bi-chevron-{% if is_rtl %}left{% else %}right{% endif %}"></i></span>
@@ -44,6 +44,9 @@
     <span class="badge badge-status-rejected"><i class="bi bi-x-circle me-1"></i>{{ ui.wf_status_rejected }}</span>
     {% else %}
     <span class="badge badge-status-published"><i class="bi bi-check-circle me-1"></i>{{ ui.wf_status_published }}</span>
+    {% endif %}
+    {% if dashboard.is_hidden %}
+    <span class="badge badge-status-hidden"><i class="bi bi-eye-slash me-1"></i>{{ ui.dl_hidden_badge }}</span>
     {% endif %}
 
     <div class="toolbar-actions {% if is_rtl %}me-auto{% else %}ms-auto{% endif %}">
@@ -86,6 +89,19 @@
            class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
             <i class="bi bi-box-arrow-up-right"></i> {{ ui.dd_open_new }}
         </a>
+        {% if can_hide_dashboard %}
+        <form method="post" action="{% url 'dashboard_set_hidden' dashboard.pk %}" class="js-hide-dashboard-form"
+              data-confirm="{% if dashboard.is_hidden %}{{ ui.dl_unhide_confirm|escapejs }}{% else %}{{ ui.dl_hide_confirm|escapejs }}{% endif %}"
+              data-name="{{ dashboard.name|escape }}">
+            {% csrf_token %}
+            <input type="hidden" name="hidden" value="{% if dashboard.is_hidden %}0{% else %}1{% endif %}">
+            <input type="hidden" name="next" value="detail">
+            <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
+                <i class="bi bi-{% if dashboard.is_hidden %}eye{% else %}eye-slash{% endif %}"></i>
+                {% if dashboard.is_hidden %}{{ ui.dl_unhide_btn }}{% else %}{{ ui.dl_hide_btn }}{% endif %}
+            </button>
+        </form>
+        {% endif %}
         {% if can_delete_dashboard %}
         <form method="post" action="{% url 'dashboard_delete' dashboard.pk %}" class="js-dashboard-delete-form"
               data-dashboard-name="{{ dashboard.name|escape }}">
@@ -308,6 +324,8 @@
         src="{% url 'dashboard_serve' dashboard.pk %}{% if request.GET.attachments_updated %}?nocache=1{% endif %}"
         class="dash-frame"
         style="height:calc(100vh - 130px);"
+        allow="fullscreen"
+        allowfullscreen
         title="{{ dashboard.name }}">
 </iframe>
 
@@ -332,6 +350,17 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if can_hide_dashboard %}
+<script>
+document.querySelectorAll('.js-hide-dashboard-form').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        var tpl = form.getAttribute('data-confirm') || '';
+        var name = form.getAttribute('data-name') || '';
+        if (tpl && !window.confirm(tpl.replace('{name}', name))) e.preventDefault();
+    });
+});
+</script>
+{% endif %}
 {% if can_delete_dashboard %}
 <script>
 (function () {

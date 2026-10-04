@@ -59,6 +59,7 @@ from .dashboard_workflow import (
     get_dashboard_viewer_attachment_map,
     get_dashboard_viewer_user_ids,
     has_delete_perm,
+    has_hide_perm,
     has_review_perm,
     has_upload_perm,
     has_dashboard_list_perm,
@@ -205,6 +206,9 @@ def _dashboard_cache_fresh(cache_path: Path) -> bool:
         return False
     try:
         gen_mtime = Path(_ai_excel_dashboard_mod.__file__).stat().st_mtime
+        locale_py = Path(__file__).resolve().parents[1] / "dashboard_locale.py"
+        if locale_py.is_file():
+            gen_mtime = max(gen_mtime, locale_py.stat().st_mtime)
         ar_pkg = Path(__file__).resolve().parents[1] / "arabic_compliance_dashboard"
         ar_gen = ar_pkg / "generator.py"
         if ar_gen.is_file():
@@ -603,12 +607,11 @@ def dashboard_list(request):
         if filter_key not in valid_keys:
             filter_key = FILTER_ALL
         request.session["dashboard_list_filter"] = filter_key
-        if filter_key != FILTER_ALL:
-            dashboards = filter_dashboards_queryset(
-                dashboards, request.user, company, filter_key
-            )
     else:
         filter_key = FILTER_ALL
+    dashboards = filter_dashboards_queryset(
+        dashboards, request.user, company, filter_key
+    )
     deletable_dashboard_ids = {
         dashboard.pk
         for dashboard in dashboards
@@ -624,6 +627,11 @@ def dashboard_list(request):
         for dashboard in dashboards
         if can_user_return_published_to_review(request.user, dashboard, company)
     }
+    hideable_dashboard_ids = {
+        dashboard.pk
+        for dashboard in dashboards
+        if has_hide_perm(request.user, company, dashboard.template_type)
+    }
     undo_deleted_pk = None
     undo_deleted_name = ""
     return render(
@@ -634,6 +642,7 @@ def dashboard_list(request):
             "deletable_dashboard_ids": deletable_dashboard_ids,
             "manageable_viewer_dashboard_ids": manageable_viewer_dashboard_ids,
             "returnable_dashboard_ids": returnable_dashboard_ids,
+            "hideable_dashboard_ids": hideable_dashboard_ids,
             "can_review_dashboards": has_review_perm(
                 request.user, company, requested_template or None
             ),
@@ -697,6 +706,9 @@ def dashboard_detail(request, pk: int):
             "can_delete_dashboard": can_user_delete_dashboard(
                 request.user, dashboard, company
             ),
+            "can_hide_dashboard": has_hide_perm(
+                request.user, company, dashboard.template_type
+            ),
             "can_upload_files": has_upload_perm(
                 request.user, company, dashboard.template_type
             ),
@@ -745,6 +757,40 @@ def dashboard_restore(request, pk: int):
 
 @login_required
 @require_http_methods(["POST"])
+def dashboard_set_hidden(request, pk: int):
+    """Hide a dashboard from everyone, or show it again. Hide permission only."""
+    lang = request.session.get("ui_lang", "en")
+    ui = get_ui(lang)
+    dashboard = _resolve_dashboard_request(request, pk)
+    if not dashboard or dashboard.is_deleted:
+        return render_page_not_found(request)
+
+    company = _active_company(request) or dashboard.company
+    if not has_hide_perm(request.user, company, dashboard.template_type):
+        messages.error(request, ui["alert_no_hide_perm"])
+        target = reverse("dashboard_list")
+        if dashboard.template_type:
+            target = f"{target}?template={dashboard.template_type}"
+        return redirect(target)
+
+    want_hidden = request.POST.get("hidden") == "1"
+    if dashboard.is_hidden != want_hidden:
+        dashboard.is_hidden = want_hidden
+        dashboard.save(update_fields=["is_hidden"])
+    messages.success(
+        request,
+        ui["dl_hide_success"] if want_hidden else ui["dl_unhide_success"],
+    )
+    if request.POST.get("next") == "detail":
+        return redirect("dashboard_detail", pk=dashboard.pk)
+    target = reverse("dashboard_list")
+    if dashboard.template_type:
+        target = f"{target}?template={dashboard.template_type}"
+    return redirect(target)
+
+
+@login_required
+@require_http_methods(["POST"])
 def dashboard_user_edits(request, pk: int):
     """Persist audit-plan table edits and review notes for a dashboard."""
     import json
@@ -780,7 +826,7 @@ def dashboard_user_edits(request, pk: int):
 @login_required
 @require_http_methods(["POST"])
 def dashboard_review_attachments(request, pk: int):
-    """Allow reviewer to add/replace/remove deck attachments before publish."""
+    """Allow an approver to add, replace, or remove attachments before or after publish."""
     lang = request.session.get("ui_lang", "en")
     ui = get_ui(lang)
 
@@ -847,6 +893,7 @@ def dashboard_serve(request, pk: int):
         content = _inject_served_dashboard_html(request, dashboard, cache_path.read_text(encoding="utf-8"))
         resp = HttpResponse(content, content_type="text/html; charset=utf-8")
         resp["X-Frame-Options"] = "SAMEORIGIN"
+        resp["Cache-Control"] = "no-store"
         return resp
 
     # 2. Generate from DB if data is available
@@ -866,6 +913,7 @@ def dashboard_serve(request, pk: int):
         content = _inject_served_dashboard_html(request, dashboard, html_out)
         resp = HttpResponse(content, content_type="text/html; charset=utf-8")
         resp["X-Frame-Options"] = "SAMEORIGIN"
+        resp["Cache-Control"] = "no-store"
         return resp
 
     # 3. Legacy: serve from the stored html_file path
@@ -877,6 +925,7 @@ def dashboard_serve(request, pk: int):
             )
             resp = HttpResponse(content, content_type="text/html; charset=utf-8")
             resp["X-Frame-Options"] = "SAMEORIGIN"
+            resp["Cache-Control"] = "no-store"
             return resp
 
     # 4. Nothing to serve
@@ -1074,6 +1123,10 @@ def _load_dashboard_for_viewer_assignment(request, pk: int) -> Dashboard | None:
     if company is not None and dashboard.company_id != company.id:
         return None
     if company is None and not request.user.is_superuser:
+        return None
+    if dashboard.is_hidden and not has_hide_perm(
+        request.user, company or dashboard.company, dashboard.template_type
+    ):
         return None
     return dashboard
 
@@ -1329,4 +1382,3 @@ def favicon(request):
     if icon_path.exists():
         return FileResponse(open(icon_path, "rb"), content_type="image/x-icon")
     return HttpResponse(status=204)
-    

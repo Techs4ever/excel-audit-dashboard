@@ -2854,6 +2854,16 @@ def generate_finance_report(
     logo_button_display = "inline-flex" if logo_data_uri else "none"
     logo_src_attr = html.escape(logo_data_uri)
     deck_attach_toggle_html = build_deck_attach_toggle_html(loc, enabled_kinds)
+    audit_attachments_band_html = ""
+    if deck_attach_toggle_html.strip():
+        attachments_heading = html.escape(tr(loc, "audit_attachments_heading"))
+        audit_attachments_band_html = (
+            '<section class="audit-attachments-band" id="audit-attachments-band" '
+            f'aria-labelledby="audit-attachments-heading">'
+            f'<h2 class="audit-attachments-heading" id="audit-attachments-heading">{attachments_heading}</h2>'
+            f'<div class="audit-deck-attach-corner">{deck_attach_toggle_html}</div>'
+            "</section>"
+        )
     html_out = f"""<!DOCTYPE html>
 <html lang="{html_lang}" dir="{html_dir}">
 <head>
@@ -3935,7 +3945,7 @@ def generate_finance_report(
     .audit-deck-attach-corner .audit-obs-aging-toggle:has(input:focus-visible) {{
       box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
     }}
-    /* Audit committee report toggle: larger square blue checkbox only */
+    /* Committee report toggle: larger square blue checkbox only */
     .audit-deck-attach-corner .audit-obs-aging-toggle input#audit-deck-attach-cb,
     .audit-deck-attach-corner .audit-obs-aging-toggle input#audit-high-risk-cb,
     .audit-deck-attach-corner .audit-obs-aging-toggle input#audit-tga-violations-cb,
@@ -4312,6 +4322,26 @@ def generate_finance_report(
       min-width: 0;
       background: #ffffff;
     }}
+    .audit-attachments-band {{
+      width: 100%;
+      margin-top: 0.85rem;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #ce93d8;
+      box-shadow: 0 2px 12px rgba(106, 27, 154, 0.08);
+      background: #ffffff;
+    }}
+    .audit-attachments-heading {{
+      margin: 0;
+      padding: 0.55rem 0.95rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #6a1b9a;
+      background: #f3e5f5;
+      border-bottom: 1px solid #e9d5f5;
+    }}
     .audit-deck-attach-corner {{
       margin-top: auto;
       display: flex;
@@ -4324,6 +4354,12 @@ def generate_finance_report(
       background: #ffffff;
       border-top: 1px solid #e9d5f5;
       box-sizing: border-box;
+    }}
+    .audit-attachments-band .audit-deck-attach-corner {{
+      margin-top: 0;
+      justify-content: flex-start;
+      border-top: none;
+      padding: 0.75rem 0.95rem 0.85rem;
     }}
     .audit-obs-names-bar-row {{
       display: flex;
@@ -6687,7 +6723,6 @@ def generate_finance_report(
                   </div>
                 </div>
                 <div class="audit-deck-attach-corner">
-                  {deck_attach_toggle_html}
                   <label class="audit-obs-aging-toggle">
                     <input type="checkbox" id="audit-additional-notes-cb" aria-controls="audit-additional-notes-inline-panel" />
                     <span id="audit-additional-notes-label"></span>
@@ -6701,6 +6736,7 @@ def generate_finance_report(
               </div>
             </div>
           </div>
+          {audit_attachments_band_html}
         </div>
         <p class="muted" id="audit-truncated-note" style="display:none;margin-top:0.75rem;"></p>
       </div>
@@ -11032,7 +11068,7 @@ def generate_finance_report(
           URL.revokeObjectURL(a.href);
         }});
       }}
-      if (deckAttachLbl) deckAttachLbl.textContent = ui.deckAttachToggleLabel || "تقرير لجنة المراجعة";
+      if (deckAttachLbl) deckAttachLbl.textContent = ui.deckAttachToggleLabel || "تقرير لجنة التدقيق والمخاطر والالتزام";
       if (highRiskLbl) highRiskLbl.textContent = ui.highRiskToggleLabel || "High Risk Observations & Emerging Risks";
       if (tgaViolationsLbl) tgaViolationsLbl.textContent = ui.tgaViolationsToggleLabel || "TGA Violations Report";
       if (missingVehicleLbl) missingVehicleLbl.textContent = ui.missingVehicleToggleLabel || "Missing Vehicle Report";
@@ -11051,7 +11087,7 @@ def generate_finance_report(
       }}
       const DECK_MODE_META = {{
         committee: {{
-          title: function () {{ return ui.deckAttachToggleLabel || "Audit committee report"; }},
+          title: function () {{ return ui.deckAttachToggleLabel || "Audit, Risk, and Compliance Committee Report"; }},
           hint: function () {{ return ui.deckUploadHint || ""; }},
           uploadTitle: function () {{ return ui.deckUploadTitle || "Upload"; }},
           uploadHint: function () {{ return ui.deckUploadHint || ""; }},

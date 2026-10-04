@@ -190,7 +190,7 @@ def attachment_specs_for_template(template_type: str | None) -> list[dict[str, s
             specs.append(spec)
     return specs
 
-ATTACHMENT_MAX_FILES = 20  # hard ceiling; per-kind limits come from company settings
+ATTACHMENT_MAX_FILES = 100  # hard ceiling; per-kind limits come from company settings
 DEFAULT_ATTACHMENT_MAX_FILES = 4
 _SAFE_UPLOAD_STEM_MAX = 120
 
@@ -867,10 +867,13 @@ def update_dashboard_review_attachments(
     *,
     company=None,
 ) -> None:
-    """Replace deck attachments for a dashboard under review (Excel unchanged)."""
+    """Replace deck attachments while a dashboard is in review or already published."""
     from audit_app.models import DashboardStatus
 
-    if dashboard.status != DashboardStatus.UNDER_REVIEW:
+    if dashboard.status not in (
+        DashboardStatus.UNDER_REVIEW,
+        DashboardStatus.PUBLISHED,
+    ):
         raise ValueError("not_under_review")
 
     existing_source = (

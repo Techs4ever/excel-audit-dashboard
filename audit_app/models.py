@@ -265,6 +265,14 @@ class CompanyMembership(AdminSoftDeleteFields):
             "Published dashboards cannot be deleted."
         ),
     )
+    can_hide_dashboards = models.BooleanField(
+        default=False,
+        verbose_name=_("Can hide dashboards"),
+        help_text=_(
+            "Hide every dashboard of this template from all users, including the creator. "
+            "Only members with this permission can show it again."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
 
     class Meta:
@@ -290,6 +298,7 @@ MEMBERSHIP_PERM_FIELDS = (
     "can_view_own_only",
     "can_review",
     "can_delete_drafts",
+    "can_hide_dashboards",
 )
 
 
@@ -322,6 +331,10 @@ class CompanyMembershipTemplateAccess(models.Model):
     can_delete_drafts = models.BooleanField(
         default=False,
         verbose_name=_("Can delete draft dashboards"),
+    )
+    can_hide_dashboards = models.BooleanField(
+        default=False,
+        verbose_name=_("Can hide dashboards"),
     )
 
     class Meta:
@@ -427,8 +440,8 @@ class CompanyAttachmentSetting(models.Model):
         super().clean()
         if self.max_files is not None and self.max_files < 1:
             raise ValidationError({"max_files": _("Enter at least 1 file.")})
-        if self.max_files is not None and self.max_files > 20:
-            raise ValidationError({"max_files": _("Maximum allowed is 20 files.")})
+        if self.max_files is not None and self.max_files > 100:
+            raise ValidationError({"max_files": _("Maximum allowed is 100 files.")})
 
 
 class UploadSession(AdminSoftDeleteFields):
@@ -627,6 +640,15 @@ class Dashboard(models.Model):
         default=DashboardStatus.DRAFT,
         verbose_name=_("Status"),
         db_index=True,
+    )
+    is_hidden = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name=_("Hidden from everyone"),
+        help_text=_(
+            "When enabled, nobody can see or open this dashboard except users "
+            "who have the hide permission for its template."
+        ),
     )
     published_at = models.DateTimeField(
         null=True,

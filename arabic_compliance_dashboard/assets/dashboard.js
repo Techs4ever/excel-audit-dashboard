@@ -3583,15 +3583,23 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         }
 
         function initComplianceAttachments() {
+            const band = document.getElementById("complianceAttachmentsBand");
             const hostToggles = document.getElementById("complianceAttachmentToggles");
             const modal = document.getElementById("complianceAttachmentModal");
             const title = document.getElementById("complianceAttachmentTitle");
-            const picker = document.getElementById("complianceAttachmentPicker");
+            const fileNameEl = document.getElementById("complianceAttachmentFileName");
             const viewerHost = document.getElementById("complianceAttachmentHost");
             const nav = document.getElementById("complianceAttachmentNav");
             const status = document.getElementById("complianceAttachmentSlideStatus");
+            const pick = document.getElementById("complianceAttachmentPick");
+            const pickBackdrop = document.getElementById("complianceAttachmentPickBackdrop");
+            const pickReport = document.getElementById("complianceAttachmentPickReport");
+            const pickList = document.getElementById("complianceAttachmentPickList");
+            const missing = document.getElementById("complianceAttachmentMissing");
+            const missingBackdrop = document.getElementById("complianceAttachmentMissingBackdrop");
+            const missingReport = document.getElementById("complianceAttachmentMissingReport");
             const seed = document.getElementById("compliance-attachments");
-            if (!hostToggles || !modal || !seed) return;
+            if (!hostToggles || !modal || !pick || !seed) return;
             let pack = { kinds: [] };
             try {
                 pack = JSON.parse(seed.textContent || "{}") || { kinds: [] };
@@ -3605,7 +3613,16 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             let pdfUrl = "";
 
             function filesOf(kind) {
-                return (kind && Array.isArray(kind.files)) ? kind.files : [];
+                return (kind && Array.isArray(kind.files)) ? kind.files.filter((file) => file && file.data_base64) : [];
+            }
+
+            function kindByCode(code) {
+                return kinds.find((item) => item.kind === code) || null;
+            }
+
+            function setLayer(node, backdrop, open) {
+                if (node) node.hidden = !open;
+                if (backdrop) backdrop.hidden = !open;
             }
 
             function revokePdf() {
@@ -3615,46 +3632,81 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 }
             }
 
-            async function showFile() {
-                const kind = kinds.find((item) => item.kind === activeKind);
-                const files = filesOf(kind);
-                const file = files[activeFile];
+            function clearViewer() {
                 if (pptxViewer && pptxViewer.destroy) {
                     try { pptxViewer.destroy(); } catch (_e) {}
                 }
                 pptxViewer = null;
                 revokePdf();
-                viewerHost.innerHTML = "";
-                if (!file) {
-                    viewerHost.innerHTML = `<div class="empty-hint">لا يوجد ملف.</div>`;
-                    nav.hidden = true;
-                    return;
+                if (viewerHost) viewerHost.innerHTML = "";
+                if (nav) nav.hidden = true;
+            }
+
+            function uncheckAll() {
+                hostToggles.querySelectorAll("input[type=checkbox]").forEach((box) => {
+                    box.checked = false;
+                });
+            }
+
+            function closePicker() {
+                setLayer(pick, pickBackdrop, false);
+                if (pickList) pickList.innerHTML = "";
+            }
+
+            function closeMissing() {
+                setLayer(missing, missingBackdrop, false);
+            }
+
+            function exitAttachmentFullscreen() {
+                const active = document.fullscreenElement || document.webkitFullscreenElement;
+                if (active && (active === modal || modal.contains(active))) {
+                    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+                    if (exit) {
+                        try { exit.call(document); } catch (_e) {}
+                    }
                 }
-                const binary = complianceBase64Bytes(file.data_base64);
-                const mime = String(file.mime || "");
-                if (mime.indexOf("pdf") >= 0 || String(file.file_name || "").toLowerCase().endsWith(".pdf")) {
-                    pdfUrl = URL.createObjectURL(new Blob([binary], { type: "application/pdf" }));
-                    viewerHost.innerHTML = `<iframe class="compliance-attachment-frame" src="${pdfUrl}" title="pdf"></iframe>`;
-                    nav.hidden = true;
-                    return;
-                }
-                nav.hidden = false;
-                const canvas = document.createElement("div");
-                canvas.className = "compliance-pptx-canvas";
-                viewerHost.appendChild(canvas);
+            }
+
+            function enterAttachmentFullscreen() {
+                if (modal.parentElement !== document.body) document.body.appendChild(modal);
+                modal.hidden = false;
+                const request = modal.requestFullscreen || modal.webkitRequestFullscreen;
+                if (!request) return;
                 try {
-                    const mod = await import("https://esm.sh/@aiden0z/pptx-renderer@1.0.2");
-                    const Viewer = mod.PptxViewer;
-                    pptxViewer = await Viewer.open(binary.buffer, canvas, {
-                        renderMode: "slide",
-                        fitMode: "contain",
-                        width: 960
-                    });
-                    syncSlides();
-                } catch (_err) {
-                    viewerHost.innerHTML = `<div class="empty-hint">تعذر عرض الملف. يمكنك تنزيله.</div>`;
-                    nav.hidden = true;
+                    const pending = request.call(modal);
+                    if (pending && pending.catch) pending.catch(() => {});
+                } catch (_e) {}
+            }
+
+            function closeViewer() {
+                exitAttachmentFullscreen();
+                modal.hidden = true;
+                clearViewer();
+                if (fileNameEl) fileNameEl.textContent = "";
+            }
+
+            function closeAttachment() {
+                closePicker();
+                closeMissing();
+                closeViewer();
+                uncheckAll();
+                activeKind = null;
+            }
+
+            async function importPptxRenderer() {
+                const urls = [
+                    "https://esm.sh/@aiden0z/pptx-renderer@1.0.2",
+                    "https://cdn.jsdelivr.net/npm/@aiden0z/pptx-renderer@1.0.2/+esm"
+                ];
+                let lastErr = null;
+                for (let i = 0; i < urls.length; i += 1) {
+                    try {
+                        return await import(urls[i]);
+                    } catch (err) {
+                        lastErr = err;
+                    }
                 }
+                throw lastErr || new Error("pptx-renderer import failed");
             }
 
             function syncSlides() {
@@ -3664,58 +3716,102 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 status.textContent = total ? `${index + 1} / ${total}` : "";
             }
 
-            function openKind(kindCode) {
-                activeKind = kindCode;
-                activeFile = 0;
-                const kind = kinds.find((item) => item.kind === kindCode);
-                if (title) title.textContent = (kind && kind.label) || "مرفق";
-                picker.innerHTML = "";
-                const files = filesOf(kind);
-                if (files.length > 1) {
-                    files.forEach((file, idx) => {
-                        const button = document.createElement("button");
-                        button.type = "button";
-                        button.className = "tool-btn";
-                        button.textContent = file.file_name || `ملف ${idx + 1}`;
-                        button.addEventListener("click", () => {
-                            activeFile = idx;
-                            void showFile();
-                        });
-                        picker.appendChild(button);
-                    });
+            async function showFile() {
+                const kind = kindByCode(activeKind);
+                const file = filesOf(kind)[activeFile];
+                clearViewer();
+                if (!file) {
+                    viewerHost.innerHTML = `<div class="empty-hint">لا يوجد ملف.</div>`;
+                    return;
                 }
-                modal.style.display = "flex";
+                if (title) title.textContent = (kind && kind.label) || "مرفق";
+                if (fileNameEl) fileNameEl.textContent = file.file_name || "";
+                const binary = complianceBase64Bytes(file.data_base64);
+                const mime = String(file.mime || "");
+                const name = String(file.file_name || "").toLowerCase();
+                enterAttachmentFullscreen();
+                const slideWidth = Math.max(
+                    window.screen.width || 0,
+                    window.innerWidth || 0,
+                    viewerHost.clientWidth || 0,
+                    1280
+                );
+                if (mime.indexOf("pdf") >= 0 || name.endsWith(".pdf")) {
+                    pdfUrl = URL.createObjectURL(new Blob([binary], { type: "application/pdf" }));
+                    viewerHost.innerHTML = `<iframe class="compliance-attachment-frame" src="${pdfUrl}#toolbar=1&navpanes=0" title="pdf"></iframe>`;
+                    return;
+                }
+                if (nav) nav.hidden = false;
+                const canvas = document.createElement("div");
+                canvas.className = "compliance-pptx-canvas";
+                viewerHost.appendChild(canvas);
+                try {
+                    const mod = await importPptxRenderer();
+                    const Viewer = mod.PptxViewer;
+                    pptxViewer = await Viewer.open(binary.buffer, canvas, {
+                        renderMode: "slide",
+                        fitMode: "contain",
+                        width: slideWidth
+                    });
+                    syncSlides();
+                } catch (_err) {
+                    viewerHost.innerHTML = `<div class="empty-hint">تعذر عرض الملف. يمكنك تنزيله.</div>`;
+                    if (nav) nav.hidden = true;
+                }
+            }
+
+            function openFile(kindCode, index) {
+                closePicker();
+                closeMissing();
+                activeKind = kindCode;
+                activeFile = index;
+                hostToggles.querySelectorAll("input[type=checkbox]").forEach((box) => {
+                    box.checked = box.dataset.kind === kindCode;
+                });
+                enterAttachmentFullscreen();
                 void showFile();
             }
 
-            function closeAttachment() {
-                modal.style.display = "none";
-                hostToggles.querySelectorAll("input[type=checkbox]").forEach((box) => {
-                    box.checked = false;
-                });
-                if (pptxViewer && pptxViewer.destroy) {
-                    try { pptxViewer.destroy(); } catch (_e) {}
+            function openPicker(kindCode) {
+                const kind = kindByCode(kindCode);
+                const files = filesOf(kind);
+                closeViewer();
+                closeMissing();
+                uncheckAll();
+                activeKind = kindCode;
+                if (!files.length) {
+                    if (missingReport) missingReport.textContent = (kind && kind.label) || "مرفق";
+                    setLayer(missing, missingBackdrop, true);
+                    return;
                 }
-                pptxViewer = null;
-                revokePdf();
-                viewerHost.innerHTML = "";
+                if (pickReport) pickReport.textContent = (kind && kind.label) || "مرفق";
+                if (pickList) {
+                    pickList.innerHTML = "";
+                    files.forEach((file, index) => {
+                        const li = document.createElement("li");
+                        const button = document.createElement("button");
+                        button.type = "button";
+                        button.className = "compliance-attach-pick-item";
+                        button.textContent = file.file_name || `مرفق ${index + 1}`;
+                        button.addEventListener("click", () => openFile(kindCode, index));
+                        li.appendChild(button);
+                        pickList.appendChild(li);
+                    });
+                }
+                setLayer(pick, pickBackdrop, true);
             }
 
+            if (band && kinds.some((kind) => filesOf(kind).length)) band.hidden = false;
             kinds.forEach((kind) => {
                 if (!filesOf(kind).length) return;
                 const label = document.createElement("label");
                 label.className = "inline-check audit";
                 const box = document.createElement("input");
                 box.type = "checkbox";
+                box.dataset.kind = kind.kind;
                 box.addEventListener("change", () => {
-                    if (box.checked) {
-                        hostToggles.querySelectorAll("input[type=checkbox]").forEach((other) => {
-                            if (other !== box) other.checked = false;
-                        });
-                        openKind(kind.kind);
-                    } else {
-                        closeAttachment();
-                    }
+                    if (box.checked) openPicker(kind.kind);
+                    else closeAttachment();
                 });
                 label.appendChild(box);
                 label.appendChild(document.createTextNode(` ${kind.label || kind.kind}`));
@@ -3723,9 +3819,14 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             });
 
             document.getElementById("complianceAttachmentModalClose").addEventListener("click", closeAttachment);
-            modal.addEventListener("click", (event) => {
-                if (event.target === modal) closeAttachment();
+            document.getElementById("complianceAttachmentBack").addEventListener("click", () => {
+                if (activeKind) openPicker(activeKind);
+                else closeAttachment();
             });
+            document.getElementById("complianceAttachmentPickCancel").addEventListener("click", closeAttachment);
+            if (pickBackdrop) pickBackdrop.addEventListener("click", closeAttachment);
+            document.getElementById("complianceAttachmentMissingOk").addEventListener("click", closeAttachment);
+            if (missingBackdrop) missingBackdrop.addEventListener("click", closeAttachment);
             document.getElementById("complianceAttachmentPrev").addEventListener("click", () => {
                 if (!pptxViewer) return;
                 const index = Number(pptxViewer.currentSlideIndex || 0);
@@ -3738,8 +3839,7 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 if (index < total - 1) void pptxViewer.goToSlide(index + 1).then(syncSlides);
             });
             document.getElementById("complianceAttachmentDownloadBtn").addEventListener("click", () => {
-                const kind = kinds.find((item) => item.kind === activeKind);
-                const file = filesOf(kind)[activeFile];
+                const file = filesOf(kindByCode(activeKind))[activeFile];
                 if (!file) return;
                 const binary = complianceBase64Bytes(file.data_base64);
                 const url = URL.createObjectURL(new Blob([binary], { type: file.mime || "application/octet-stream" }));
@@ -5999,4 +6099,5 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         initUploadedFilePreview();
         initFileColumnStudio();
         fetchSummary();
+  
   

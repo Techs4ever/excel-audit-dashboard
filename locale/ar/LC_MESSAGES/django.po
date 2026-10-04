@@ -1271,6 +1271,24 @@ msgstr "تعيين المشاهدين"
 msgid "Delete drafts"
 msgstr "حذف المسودات"
 
+msgid "Hide dashboards"
+msgstr "إخفاء اللوحات"
+
+msgid "Can hide dashboards"
+msgstr "يمكنه إخفاء لوحات التحكم"
+
+msgid "Hide every dashboard of this template from all users, including the creator. Only members with this permission can show it again."
+msgstr "إخفاء كل لوحات هذا النوع عن جميع المستخدمين بمن فيهم المنشئ. فقط من يملك هذه الصلاحية يستطيع إظهارها مرة أخرى."
+
+msgid "Hidden from everyone"
+msgstr "مخفي عن الجميع"
+
+msgid "When enabled, nobody can see or open this dashboard except users who have the hide permission for its template."
+msgstr "عند التفعيل، لا يستطيع أحد رؤية هذه اللوحة أو فتحها إلا من يملك صلاحية الإخفاء لنوع القالب."
+
+msgid "Each template type has its own upload, view, review, delete, and hide rights for this company."
+msgstr "لكل نوع قالب صلاحيات رفع وعرض ومراجعة وحذف وإخفاء مستقلة داخل هذه الشركة."
+
 msgid "Each template type has its own upload, view, review, and delete rights for this company."
 msgstr "لكل نوع قالب صلاحيات رفع وعرض ومراجعة وحذف مستقلة داخل هذه الشركة."
 

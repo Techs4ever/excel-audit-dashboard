@@ -322,13 +322,18 @@ class AuditPlanUserEditsTests(TestCase):
         self.assertEqual(merged["planRows"][0][0], "Project X")
         self.assertEqual(merged["obsTrackingRows"][0][2], "3")
 
-    def test_can_user_manage_review_attachments_only_under_review(self):
+    def test_can_user_manage_review_attachments_while_pending_or_published(self):
         self.dashboard.status = DashboardStatus.UNDER_REVIEW
         self.dashboard.save(update_fields=["status"])
         self.assertTrue(
             can_user_manage_review_attachments(self.reviewer, self.dashboard, self.company)
         )
         self.dashboard.status = DashboardStatus.PUBLISHED
+        self.dashboard.save(update_fields=["status"])
+        self.assertTrue(
+            can_user_manage_review_attachments(self.reviewer, self.dashboard, self.company)
+        )
+        self.dashboard.status = DashboardStatus.DRAFT
         self.dashboard.save(update_fields=["status"])
         self.assertFalse(
             can_user_manage_review_attachments(self.reviewer, self.dashboard, self.company)

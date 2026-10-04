@@ -24,7 +24,7 @@ from audit_app.models import (
 )
 
 DEFAULT_ATTACHMENT_MAX_FILES = 4
-ATTACHMENT_HARD_CEILING = 20
+ATTACHMENT_HARD_CEILING = 100
 
 IS_STAFF_LABEL = _("Admin")
 IS_STAFF_HELP = _(
@@ -604,6 +604,7 @@ MEMBERSHIP_TEMPLATE_PERM_SPECS = (
     ("can_review", _("Approve or reject")),
     ("can_assign_dashboard_viewers", _("Assign viewers")),
     ("can_delete_drafts", _("Delete drafts")),
+    ("can_hide_dashboards", _("Hide dashboards")),
 )
 
 

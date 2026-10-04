@@ -220,6 +220,17 @@ def validate_link_target(
         raise DashboardLinkError("err_link_not_found")
     if target.is_deleted:
         raise DashboardLinkError("err_link_deleted")
+    if target.is_hidden:
+        same_link = False
+        if allow_current and dashboard is not None and dashboard.pk:
+            saved_id = (
+                Dashboard.objects.filter(pk=dashboard.pk)
+                .values_list("linked_dashboard_id", flat=True)
+                .first()
+            )
+            same_link = saved_id == target.pk
+        if not same_link:
+            raise DashboardLinkError("err_link_not_found")
     expected_company_id = None
     if dashboard is not None and dashboard.company_id:
         expected_company_id = dashboard.company_id
@@ -305,6 +316,7 @@ def link_choices(company, dashboard: Dashboard | None = None):
         company=company,
         status=DashboardStatus.PUBLISHED,
         is_deleted=False,
+        is_hidden=False,
     )
     if dashboard is not None and dashboard.pk:
         blocked = descendant_ids(dashboard)

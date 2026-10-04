@@ -1364,7 +1364,7 @@ class CompanyMembershipAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompany
                 "fields": ("template_permissions",),
                 "description": _(
                     "Each template type has its own upload, view, review, "
-                    "and delete rights for this company."
+                    "delete, and hide rights for this company."
                 ),
             },
         ),
@@ -1375,6 +1375,7 @@ class CompanyMembershipAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompany
         "can_view_own_only",
         "can_review",
         "can_delete_drafts",
+        "can_hide_dashboards",
     )
     list_filter = (
         "company",
@@ -1383,6 +1384,7 @@ class CompanyMembershipAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompany
         "can_view_own_only",
         "can_review",
         "can_delete_drafts",
+        "can_hide_dashboards",
     )
     search_fields = ("user__username", "user__email", "company__code")
     autocomplete_fields = ("user", "company")
@@ -1655,7 +1657,7 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
     inlines = [DashboardRejectionLogInline]
     fieldsets = (
         (_("Basic information"), {"fields": ("name", "description", "icon", "template_type", "company", "created_by")}),
-        (_("Workflow"), {"fields": ("status", "submitted_at", "published_at", "reviewed_by", "linked_dashboard")}),
+        (_("Workflow"), {"fields": ("status", "is_hidden", "submitted_at", "published_at", "reviewed_by", "linked_dashboard")}),
         (_("Soft delete"), {"fields": ("is_deleted", "deleted_at", "deleted_by")}),
         (_("Report data"), {"fields": ("report_id", "html_file", "source_files", "upload_session")}),
         (_("Dates"), {"fields": ("created_at",)}),

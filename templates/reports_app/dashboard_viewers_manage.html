@@ -4,7 +4,7 @@
 
 {% block page_title %}
 <div class="breadcrumb-nav">
-    <a href="{% url 'dashboard_list' %}">
+    <a href="{% url 'dashboard_list' %}{% if dashboard.template_type %}?template={{ dashboard.template_type }}{% endif %}">
         <i class="bi bi-grid-3x3-gap-fill me-1"></i>{{ ui.dd_breadcrumb }}
     </a>
     <span class="sep"><i class="bi bi-chevron-{% if is_rtl %}left{% else %}right{% endif %}"></i></span>

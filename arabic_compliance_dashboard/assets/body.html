@@ -141,7 +141,6 @@
                     <input type="checkbox" id="complianceAmbassadorsToggle">
                     سفراء الالتزام
                 </label>
-                <span id="complianceAttachmentToggles" class="compliance-attachment-toggles"></span>
                 <label class="inline-check">
                     <input type="checkbox" id="finalStatusToggle">
                     تقرير تتبع حالة الالتزام السنوي
@@ -159,6 +158,11 @@
                     حالة خطط المعالجة
                 </label>
             </div>
+        </section>
+
+        <section class="compliance-attachments-band" id="complianceAttachmentsBand" hidden>
+            <h2 class="compliance-attachments-heading">المرفقات</h2>
+            <div id="complianceAttachmentToggles" class="compliance-attachment-toggles"></div>
         </section>
         
         <section id="filePreviewPanel" class="file-preview-panel" hidden>
@@ -408,25 +412,35 @@
         </div>
     </div>
 
-    <div id="complianceAttachmentModal" class="modal-overlay" role="dialog" aria-modal="true" style="z-index: 67;">
-        <div class="modal modal-wide">
-            <div class="modal-header" style="background:#1e3a5f; border-bottom:1px solid #0f2744;">
-                <h3 id="complianceAttachmentTitle" class="modal-title" style="font-size:20px;">مرفق</h3>
-                <div class="modal-toolbar">
-                    <button id="complianceAttachmentDownloadBtn" type="button" class="modal-close">تنزيل</button>
-                    <button id="complianceAttachmentModalClose" type="button" class="modal-close">إغلاق</button>
-                </div>
+    <div id="complianceAttachmentMissingBackdrop" class="compliance-attach-pick-backdrop" hidden></div>
+    <div id="complianceAttachmentMissing" class="compliance-attach-notice" role="alertdialog" aria-modal="true" aria-labelledby="complianceAttachmentMissingTitle" hidden>
+        <p id="complianceAttachmentMissingReport" class="compliance-attach-pick-report"></p>
+        <h3 id="complianceAttachmentMissingTitle" class="compliance-attach-pick-title">لا يوجد مرفق</h3>
+        <p class="compliance-attach-pick-hint">لا يوجد مرفق لهذا التقرير.</p>
+        <button id="complianceAttachmentMissingOk" type="button" class="compliance-attach-pick-cancel">حسناً</button>
+    </div>
+    <div id="complianceAttachmentPickBackdrop" class="compliance-attach-pick-backdrop" hidden></div>
+    <div id="complianceAttachmentPick" class="compliance-attach-pick" role="dialog" aria-modal="true" aria-labelledby="complianceAttachmentPickTitle" hidden>
+        <p id="complianceAttachmentPickReport" class="compliance-attach-pick-report"></p>
+        <h3 id="complianceAttachmentPickTitle" class="compliance-attach-pick-title">المرفقات</h3>
+        <p class="compliance-attach-pick-hint">اختر ملفاً لفتحه.</p>
+        <ul id="complianceAttachmentPickList" class="compliance-attach-pick-list"></ul>
+        <button id="complianceAttachmentPickCancel" type="button" class="compliance-attach-pick-cancel">إلغاء</button>
+    </div>
+    <div id="complianceAttachmentModal" class="compliance-attach-viewer" role="dialog" aria-modal="true" aria-labelledby="complianceAttachmentTitle" hidden>
+        <div class="compliance-attach-viewer-bar">
+            <button id="complianceAttachmentBack" type="button" class="compliance-attach-viewer-btn">قائمة المرفقات</button>
+            <h3 id="complianceAttachmentTitle" class="compliance-attach-viewer-title">مرفق</h3>
+            <span id="complianceAttachmentFileName" class="compliance-attach-viewer-name"></span>
+            <div id="complianceAttachmentNav" class="compliance-attachment-nav" hidden>
+                <button id="complianceAttachmentPrev" type="button" class="compliance-attach-viewer-btn">السابق</button>
+                <span id="complianceAttachmentSlideStatus"></span>
+                <button id="complianceAttachmentNext" type="button" class="compliance-attach-viewer-btn">التالي</button>
             </div>
-            <div class="modal-body">
-                <div id="complianceAttachmentPicker" class="compliance-attachment-picker"></div>
-                <div id="complianceAttachmentNav" class="compliance-attachment-nav" hidden>
-                    <button id="complianceAttachmentPrev" type="button" class="tool-btn">السابق</button>
-                    <span id="complianceAttachmentSlideStatus"></span>
-                    <button id="complianceAttachmentNext" type="button" class="tool-btn">التالي</button>
-                </div>
-                <div id="complianceAttachmentHost" class="compliance-attachment-host"></div>
-            </div>
+            <button id="complianceAttachmentDownloadBtn" type="button" class="compliance-attach-viewer-btn">تنزيل</button>
+            <button id="complianceAttachmentModalClose" type="button" class="compliance-attach-viewer-close" aria-label="إغلاق">×</button>
         </div>
+        <div id="complianceAttachmentHost" class="compliance-attachment-host"></div>
     </div>
 
     <div id="fileStudioModal" class="modal-overlay file-studio-overlay" role="dialog" aria-modal="true" aria-labelledby="fileStudioTitle" style="display:none;z-index:72;">
