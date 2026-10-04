@@ -16,6 +16,10 @@ def _membership_formset_fields(*, total: str = "0") -> dict[str, str]:
         "company_memberships-INITIAL_FORMS": "0",
         "company_memberships-MIN_NUM_FORMS": "0",
         "company_memberships-MAX_NUM_FORMS": "1000",
+        "department_accesses-TOTAL_FORMS": "0",
+        "department_accesses-INITIAL_FORMS": "0",
+        "department_accesses-MIN_NUM_FORMS": "0",
+        "department_accesses-MAX_NUM_FORMS": "1000",
     }
 
 
@@ -134,6 +138,12 @@ def test_admin_change_non_superuser_page_loads(admin_client, btc_company):
     content = response.content.decode()
     assert 'name="receive_workflow_emails"' in content
     assert 'id="id_receive_workflow_emails"' in content
+    dept_at = content.find('id="department_accesses-heading"')
+    company_at = content.find('id="company_memberships-heading"')
+    assert 0 <= dept_at < company_at
+    assert "user-perm-tabs" not in content
+    assert "admin_user_permission_tabs.js" not in content
+    assert "password_rules.js" in content
 
 
 @pytest.mark.django_db

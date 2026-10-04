@@ -21,7 +21,7 @@ COMPANY_KIND_CHOICES = [
 
 
 ATTACHMENT_KIND_CHOICES = [
-    ("deck", _("Company wise Audit committee report")),
+    ("deck", _("Audit, Risk, and Compliance Committee Report")),
     ("highRisk", _("High Risk Observations & Emerging Risks")),
     ("tgaViolations", _("TGA Violations Report")),
     ("missingVehicle", _("Missing Vehicle Report")),
@@ -403,6 +403,148 @@ def apply_membership_template_accesses(
         update_fields=list(rollup.keys()),
         skip_template_access_seed=True,
     )
+
+
+class Department(AdminSoftDeleteFields):
+    """Shared department used to limit the dashboard Department filter."""
+
+    sync_is_active_with_soft_delete = True
+
+    name = models.CharField(
+        max_length=255,
+        verbose_name=_("Department"),
+        help_text=_(
+            "Must match the Department value in the Excel file "
+            "(spacing and letter case are ignored)."
+        ),
+    )
+    excel_aliases = models.TextField(
+        blank=True,
+        verbose_name=_("Excel department names"),
+        help_text=_(
+            "Optional extra names as they appear in the Excel Department column, "
+            "one per line. The department name itself is always accepted."
+        ),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    active_name_key = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Active name key"),
+    )
+
+    class Meta:
+        verbose_name = _("Department")
+        verbose_name_plural = _("Departments")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["active_name_key"],
+                name="uniq_active_department_name",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if self.is_deleted:
+            self.active_name_key = None
+        else:
+            self.active_name_key = " ".join(
+                str(self.name or "").replace("\u00a0", " ").split()
+            ).casefold()[:255] or None
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"active_name_key"}
+        super().save(*args, **kwargs)
+
+    def match_tokens(self) -> list[str]:
+        tokens: list[str] = []
+        seen: set[str] = set()
+        raw_values = [self.name, *(self.excel_aliases or "").splitlines()]
+        for item in raw_values:
+            text = " ".join(str(item or "").replace("\u00a0", " ").split())
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            tokens.append(text)
+        return tokens
+
+    def clean(self) -> None:
+        super().clean()
+        self.name = " ".join(str(self.name or "").replace("\u00a0", " ").split())
+        alias_lines = []
+        for line in (self.excel_aliases or "").splitlines():
+            text = " ".join(str(line or "").replace("\u00a0", " ").split())
+            if text:
+                alias_lines.append(text)
+        self.excel_aliases = "\n".join(alias_lines)
+        if not self.name:
+            return
+        others = Department.objects.filter(is_deleted=False)
+        if self.pk:
+            others = others.exclude(pk=self.pk)
+        folded = self.name.casefold()
+        for other in others:
+            if other.name.casefold() == folded:
+                raise ValidationError(
+                    {"name": _("A department with this name already exists.")}
+                )
+
+
+class UserDepartmentAccess(AdminSoftDeleteFields):
+    """Departments a user may see on dashboards assigned to them."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="department_accesses",
+        verbose_name=_("User"),
+    )
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.PROTECT,
+        related_name="user_accesses",
+        verbose_name=_("Department"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    active_department_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Active department id"),
+    )
+
+    class Meta:
+        verbose_name = _("Department access")
+        verbose_name_plural = _("Department access")
+        ordering = ["department__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "active_department_id"],
+                name="uniq_active_user_department_access",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} · {self.department}"
+
+    def save(self, *args, **kwargs):
+        if self.is_deleted:
+            self.active_department_id = None
+        else:
+            self.active_department_id = self.department_id
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"active_department_id"}
+        super().save(*args, **kwargs)
 
 
 class CompanyAttachmentSetting(models.Model):

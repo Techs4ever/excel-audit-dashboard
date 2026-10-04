@@ -31,6 +31,7 @@ from audit_app.company_access import (
     template_codes_with_perm,
     user_must_select_company,
 )
+from audit_app.department_access import department_scope_tokens_for_dashboard
 from audit_app.models import (
     Dashboard,
     DashboardTemplateType,
@@ -544,6 +545,9 @@ def _inject_served_dashboard_html(
         user_edits_json=dashboard.user_edits_json or "",
         allowed_attachment_kinds=allowed_kinds,
         dashboard_status=dashboard.status or "",
+        department_scope_tokens=department_scope_tokens_for_dashboard(
+            request.user, dashboard
+        ),
     )
 
 

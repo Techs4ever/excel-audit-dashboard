@@ -654,6 +654,61 @@ html[dir="rtl"] #content-start .admin-cl-v2-form__panel .select2-container .sele
     margin-bottom: 1rem;
 }
 
+#content-start .admin-cl-v2-form__panel #department_accesses-group,
+#content-start .admin-cl-v2-form__panel #company_memberships-group {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 0 1.25rem !important;
+    overflow: visible;
+    background: transparent !important;
+}
+
+#content-start .admin-cl-v2-form__panel #department_accesses-group h2.inline-heading,
+#content-start .admin-cl-v2-form__panel #company_memberships-group h2.inline-heading {
+    display: flex !important;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1rem !important;
+    font-weight: 800 !important;
+    color: var(--cl-v2-text) !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    border: none !important;
+    padding: 0 0 0.85rem !important;
+    margin: 0 0 1rem !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+#content-start .admin-cl-v2-form__panel #department_accesses-group h2.inline-heading::before,
+#content-start .admin-cl-v2-form__panel #company_memberships-group h2.inline-heading::before {
+    font-family: "bootstrap-icons";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 0.75rem;
+    background: var(--cl-v2-brand-soft);
+    color: var(--cl-v2-brand);
+    font-size: 1rem;
+    font-weight: 400;
+    flex-shrink: 0;
+}
+
+#content-start .admin-cl-v2-form__panel #department_accesses-group h2.inline-heading::before {
+    content: "\F2EE";
+}
+
+#content-start .admin-cl-v2-form__panel #company_memberships-group h2.inline-heading::before {
+    content: "\F1DD";
+}
+
+#content-start .admin-cl-v2-form__panel #department_accesses-group .description {
+    margin-top: -0.35rem;
+}
+
 #content-start .admin-cl-v2-form__panel .inline-group {
     border: 1px solid var(--cl-v2-border) !important;
     border-radius: var(--cl-v2-radius-lg) !important;

@@ -507,6 +507,29 @@ def filter_compliance_attachment_script(
     return _replace_json_script(html_out, "compliance-attachments", data)
 
 
+_PREVIOUS_DECK_TOGGLE_LABELS = (
+    "Audit committee report",
+    "Audit Committee report",
+)
+
+
+def refresh_deck_attach_toggle_label(html: str) -> str:
+    """Show the current attachment name even when cached HTML still has the old one."""
+    current = tr("en", "audit_deck_attach_toggle_label")
+    for old in _PREVIOUS_DECK_TOGGLE_LABELS:
+        if old == current:
+            continue
+        html = html.replace(
+            f'"deckAttachToggleLabel": "{old}"',
+            f'"deckAttachToggleLabel": "{current}"',
+        )
+        html = html.replace(
+            f'ui.deckAttachToggleLabel || "{old}"',
+            f'ui.deckAttachToggleLabel || "{current}"',
+        )
+    return html
+
+
 def inject_dashboard_serve_context(
     html_out: str,
     *,
@@ -517,7 +540,12 @@ def inject_dashboard_serve_context(
     user_edits_json: str = "",
     allowed_attachment_kinds: set[str] | frozenset[str] | None = None,
     dashboard_status: str = "",
+    department_scope_tokens: list[str] | None = None,
 ) -> str:
+    from audit_app.department_access import apply_department_scope_to_html
+
+    html_out = apply_department_scope_to_html(html_out, department_scope_tokens)
+    html_out = refresh_deck_attach_toggle_label(html_out)
     h = inject_web_mail_api(html_out, mail_url, plan_url)
     if allowed_attachment_kinds is not None:
         h = filter_dashboard_html_attachments(h, allowed_attachment_kinds)

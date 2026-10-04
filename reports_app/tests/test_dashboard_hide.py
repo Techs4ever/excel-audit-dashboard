@@ -72,6 +72,12 @@ class DashboardHideTests(TestCase):
             "Audit, Risk, and Compliance Committee Report",
         )
         self.assertIn("المخاطر", tr("ar", "audit_deck_attach_toggle_label"))
+        from reports_app.services.report_generation import refresh_deck_attach_toggle_label
+
+        stale = '"deckAttachToggleLabel": "Audit committee report"'
+        refreshed = refresh_deck_attach_toggle_label(stale)
+        self.assertIn("Audit, Risk, and Compliance Committee Report", refreshed)
+        self.assertNotIn("Audit committee report", refreshed)
 
     def test_hidden_dashboard_is_invisible_to_creator(self):
         self.dashboard.is_hidden = True
