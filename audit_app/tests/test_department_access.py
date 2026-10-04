@@ -153,6 +153,39 @@ def test_removing_department_access_soft_deletes_the_link(admin_client, btc_comp
     assert UserDepartmentAccess.objects.filter(pk=access.pk).exists()
 
 
+def test_preview_table_keeps_only_granted_department():
+    html = """
+    <table class='preview-filter-table'><thead><tr>
+      <th><span class="preview-col-label">Department</span>
+        <select class="preview-col-filter preview-col-filter--select" data-col-idx="0" data-filter-mode="select" aria-label="Department">
+          <option value="">All (3)</option>
+          <option value="Finance">Finance (1)</option>
+          <option value="HR">HR (1)</option>
+          <option value="IT">IT (1)</option>
+        </select>
+      </th>
+      <th><span class="preview-col-label">Audit Cycle/ Department</span>
+        <select class="preview-col-filter preview-col-filter--select" data-col-idx="1" data-filter-mode="select" aria-label="Audit Cycle/ Department">
+          <option value="">All (3)</option>
+          <option value="Cycle A">Cycle A (2)</option>
+          <option value="Cycle B">Cycle B (1)</option>
+        </select>
+      </th>
+    </tr></thead><tbody>
+      <tr><td>Finance</td><td>Cycle A</td></tr>
+      <tr><td>HR</td><td>Cycle A</td></tr>
+      <tr><td>IT</td><td>Cycle B</td></tr>
+    </tbody></table>
+    """
+    scoped = apply_department_scope_to_html(html, ["HR"])
+    assert scoped.count("<tr><td>HR</td><td>Cycle A</td></tr>") == 1
+    assert "Finance" not in scoped
+    assert ">IT<" not in scoped
+    assert "Cycle B" not in scoped
+    assert "Cycle A (1)" in scoped
+    assert "All (1)" in scoped
+
+
 def test_serve_context_applies_department_scope():
     html = _payload_html().replace("<html>", "<html><head></head>")
     out = inject_dashboard_serve_context(
