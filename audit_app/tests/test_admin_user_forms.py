@@ -144,6 +144,12 @@ def test_admin_change_non_superuser_page_loads(admin_client, btc_company):
     assert "user-perm-tabs" not in content
     assert "admin_user_permission_tabs.js" not in content
     assert "password_rules.js" in content
+    assert 'id="dept-access-add-all"' in content
+    assert 'id="dept-access-remove-all"' in content
+    assert "admin_department_access_bulk.js" in content
+    bulk_at = content.find('class="dept-access-bulk"')
+    first_field_at = content.find('id="department_accesses-0"')
+    assert 0 <= bulk_at < first_field_at
 
 
 @pytest.mark.django_db

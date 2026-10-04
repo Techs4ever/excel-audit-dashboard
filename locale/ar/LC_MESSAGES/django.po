@@ -2111,6 +2111,12 @@ msgstr "الأقسام مشتركة بين كل الشركات. طابق الا�
 msgid "Search department…"
 msgstr "ابحث عن قسم…"
 
+msgid "Add all departments"
+msgstr "إضافة كل الأقسام"
+
+msgid "Remove all departments"
+msgstr "إزالة كل الأقسام"
+
 msgid "Total departments"
 msgstr "إجمالي الأقسام"
 
