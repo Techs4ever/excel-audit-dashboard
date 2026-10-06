@@ -2093,6 +2093,54 @@ msgstr "أسماء إضافية اختيارية كما تظهر في عمود �
 msgid "A department with this name already exists."
 msgstr "يوجد قسم بهذا الاسم."
 
+msgid "A department with this name already exists for this company."
+msgstr "يوجد قسم بهذا الاسم لهذه الشركة."
+
+msgid "departments"
+msgstr "الأقسام"
+
+msgid "Only departments of this company are listed."
+msgstr "تظهر أقسام هذه الشركة فقط."
+
+msgid "Departments belong to the main company. Subsidiaries inherit them."
+msgstr "الأقسام تتبع الشركة الأم. الشركات الفرعية ترثها."
+
+msgid "These departments belong to this main company. Subsidiary companies use the same list."
+msgstr "هذه الأقسام تتبع هذه الشركة الأم. الشركات الفرعية تستخدم نفس القائمة."
+
+msgid "Subsidiaries use the departments of the parent company %(parent)s."
+msgstr "الشركات الفرعية تستخدم أقسام الشركة الأم %(parent)s."
+
+msgid "The parent company has no departments yet."
+msgstr "لا توجد أقسام لدى الشركة الأم بعد."
+
+msgid "Each department belongs to one company. The same name can exist under another company. Match it to the Department column in Excel, then grant it on that company's membership."
+msgstr "كل قسم يتبع شركة واحدة. يمكن أن يوجد نفس الاسم تحت شركة أخرى. طابق الاسم مع عمود القسم في إكسل، ثم امنحه من عضوية تلك الشركة."
+
+msgid "Create a new user account, set permissions, and assign company memberships. Department access is granted under each company."
+msgstr "أنشئ حساب مستخدم جديد وحدّد الصلاحيات وعضويات الشركات. صلاحية الأقسام تُمنح تحت كل شركة."
+
+msgid "Update user profile, permissions, password, and company access. Department access is granted under each company."
+msgstr "حدّث ملف المستخدم والصلاحيات وكلمة المرور ووصول الشركات. صلاحية الأقسام تُمنح تحت كل شركة."
+
+msgid "Create a new user account, set permissions, and assign company memberships. Department access and visible subsidiaries are granted under each company."
+msgstr "أنشئ حساب مستخدم جديد وحدّد الصلاحيات وعضويات الشركات. صلاحية الأقسام والشركات التابعة الظاهرة تُمنح تحت كل شركة."
+
+msgid "Update user profile, permissions, password, and company access. Department access and visible subsidiaries are granted under each company."
+msgstr "حدّث ملف المستخدم والصلاحيات وكلمة المرور ووصول الشركات. صلاحية الأقسام والشركات التابعة الظاهرة تُمنح تحت كل شركة."
+
+msgid "Visible companies"
+msgstr "الشركات الظاهرة"
+
+msgid "If this company has subsidiaries, check the ones this user may see in its dashboards, including the company itself. You can select more than one. Leave them all unchecked to show every company."
+msgstr "إذا كان لهذه الشركة شركات تابعة، حدّد الشركات التي يراها هذا المستخدم في لوحاتها، بما فيها الشركة نفسها. يمكن اختيار أكثر من شركة. اتركها كلها بدون تحديد لإظهار كل الشركات."
+
+msgid "Subsidiary access"
+msgstr "صلاحية الشركات التابعة"
+
+msgid "Active company id"
+msgstr "معرّف الشركة النشط"
+
 msgid "Each department can be assigned only once."
 msgstr "يمكن تعيين كل قسم مرة واحدة فقط."
 

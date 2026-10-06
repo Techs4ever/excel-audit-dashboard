@@ -9,7 +9,6 @@ ADMIN_V2_CHANGE_LISTS = (
     ("admin:auth_group_changelist", {}, True),
     ("admin:auth_user_changelist", {"deleted": "active"}, True),
     ("admin:audit_app_company_changelist", {"deleted": "active"}, True),
-    ("admin:audit_app_department_changelist", {"deleted": "active"}, True),
     ("admin:audit_app_companymembership_changelist", {"deleted": "active"}, True),
     ("admin:audit_app_observationrecord_changelist", {"deleted": "active"}, True),
     ("admin:audit_app_dashboardrejectionlog_changelist", {"deleted": "active"}, True),

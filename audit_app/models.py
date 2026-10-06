@@ -406,10 +406,18 @@ def apply_membership_template_accesses(
 
 
 class Department(AdminSoftDeleteFields):
-    """Shared department used to limit the dashboard Department filter."""
+    """Department of one main company, used to limit that company's dashboards."""
 
     sync_is_active_with_soft_delete = True
 
+    company = models.ForeignKey(
+        "Company",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=False,
+        related_name="departments",
+        verbose_name=_("Company"),
+    )
     name = models.CharField(
         max_length=255,
         verbose_name=_("Department"),
@@ -439,11 +447,11 @@ class Department(AdminSoftDeleteFields):
     class Meta:
         verbose_name = _("Department")
         verbose_name_plural = _("Departments")
-        ordering = ["name"]
+        ordering = ["company__code", "name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["active_name_key"],
-                name="uniq_active_department_name",
+                fields=["company", "active_name_key"],
+                name="uniq_active_department_name_company",
             ),
         ]
 
@@ -486,16 +494,29 @@ class Department(AdminSoftDeleteFields):
             if text:
                 alias_lines.append(text)
         self.excel_aliases = "\n".join(alias_lines)
-        if not self.name:
+        if not self.name or not self.company_id:
             return
-        others = Department.objects.filter(is_deleted=False)
+        if not self.company.is_main:
+            raise ValidationError(
+                _(
+                    "Departments belong to the main company. Subsidiaries inherit them."
+                )
+            )
+        others = Department.objects.filter(
+            is_deleted=False,
+            company_id=self.company_id,
+        )
         if self.pk:
             others = others.exclude(pk=self.pk)
         folded = self.name.casefold()
         for other in others:
             if other.name.casefold() == folded:
                 raise ValidationError(
-                    {"name": _("A department with this name already exists.")}
+                    {
+                        "name": _(
+                            "A department with this name already exists for this company."
+                        )
+                    }
                 )
 
 
@@ -544,6 +565,54 @@ class UserDepartmentAccess(AdminSoftDeleteFields):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             kwargs["update_fields"] = set(update_fields) | {"active_department_id"}
+        super().save(*args, **kwargs)
+
+
+class UserSubsidiaryAccess(AdminSoftDeleteFields):
+    """Parent or subsidiary companies whose dashboard rows a user may see."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="subsidiary_accesses",
+        verbose_name=_("User"),
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.PROTECT,
+        related_name="user_subsidiary_accesses",
+        verbose_name=_("Company"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    active_company_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Active company id"),
+    )
+
+    class Meta:
+        verbose_name = _("Subsidiary access")
+        verbose_name_plural = _("Subsidiary access")
+        ordering = ["company__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "active_company_id"],
+                name="uniq_active_user_subsidiary_access",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} · {self.company}"
+
+    def save(self, *args, **kwargs):
+        if self.is_deleted:
+            self.active_company_id = None
+        else:
+            self.active_company_id = self.company_id
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"active_company_id"}
         super().save(*args, **kwargs)
 
 

@@ -1,12 +1,18 @@
 """Admin user forms — password authentication is always required."""
 
+import json
+
 from django import forms
 from django.contrib import admin
+from django.contrib.admin.widgets import FilteredSelectMultiple
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import SetPasswordMixin, UserChangeForm, UserCreationForm
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.forms.models import BaseInlineFormSet
+from django.utils import timezone
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
 from accounts_app.models import UserProfile
@@ -21,6 +27,9 @@ from audit_app.models import (
     Company,
     CompanyAttachmentSetting,
     CompanyMembership,
+    Department,
+    UserDepartmentAccess,
+    UserSubsidiaryAccess,
 )
 
 DEFAULT_ATTACHMENT_MAX_FILES = 4
@@ -681,6 +690,77 @@ class TemplatePermissionsWidget(forms.Widget):
         )
 
 
+_JSON_SCRIPT_ESCAPES = str.maketrans({
+    ord(">"): "\\u003E",
+    ord("<"): "\\u003C",
+    ord("&"): "\\u0026",
+})
+
+
+def department_catalog_by_company() -> dict:
+    catalog: dict[str, list[dict]] = {}
+    rows = (
+        Department.objects.filter(
+            is_deleted=False,
+            is_active=True,
+            company__isnull=False,
+        )
+        .order_by("name")
+        .values_list("company_id", "pk", "name")
+    )
+    for company_id, pk, name in rows:
+        catalog.setdefault(str(company_id), []).append({"id": pk, "name": name})
+    return catalog
+
+
+class SubsidiaryAccessWidget(forms.CheckboxSelectMultiple):
+    """Checkboxes for the parent company and its subsidiaries."""
+
+    def __init__(self, attrs=None, choices=()):
+        super().__init__(attrs, choices)
+        self.catalog: dict = {}
+
+    def render(self, name, value, attrs=None, renderer=None):
+        selected = {str(item) for item in (value or [])}
+        items = []
+        for opt_value, opt_label in self.choices:
+            checked = " checked" if str(opt_value) in selected else ""
+            items.append(
+                "<li><label>"
+                f'<input type="checkbox" name="{escape(name)}" '
+                f'value="{escape(str(opt_value))}"{checked}> '
+                f"{escape(str(opt_label))}"
+                "</label></li>"
+            )
+        empty = " is-empty" if not items else ""
+        payload = json.dumps(self.catalog, ensure_ascii=False).translate(
+            _JSON_SCRIPT_ESCAPES
+        )
+        return mark_safe(
+            f'<div class="subsidiary-access{empty}" data-field-name="{escape(name)}">'
+            f'<ul class="subsidiary-access__list">{"".join(items)}</ul>'
+            "</div>"
+            f'<script type="application/json" class="company-subsidiary-catalog">{payload}</script>'
+        )
+
+
+class CompanyDepartmentSelect(FilteredSelectMultiple):
+    """Two-box department picker. Options for other companies are filled in by JS."""
+
+    def __init__(self, verbose_name, is_stacked, attrs=None, choices=()):
+        super().__init__(verbose_name, is_stacked, attrs, choices)
+        self.catalog: dict = {}
+
+    def render(self, name, value, attrs=None, renderer=None):
+        html = super().render(name, value, attrs, renderer)
+        payload = json.dumps(self.catalog, ensure_ascii=False).translate(
+            _JSON_SCRIPT_ESCAPES
+        )
+        return mark_safe(
+            f'{html}<script type="application/json" class="company-department-catalog">{payload}</script>'
+        )
+
+
 class TemplatePermissionsField(forms.Field):
     widget = TemplatePermissionsWidget
 
@@ -696,10 +776,34 @@ class CompanyMembershipForm(forms.ModelForm):
     template_permissions = TemplatePermissionsField(
         label=_("Dashboard template permissions"),
     )
+    department_access = forms.ModelMultipleChoiceField(
+        label=_("Departments"),
+        required=False,
+        queryset=Department.objects.none(),
+        widget=CompanyDepartmentSelect(_("departments"), False),
+        help_text=_("Only departments of this company are listed."),
+    )
+    subsidiary_access = forms.ModelMultipleChoiceField(
+        label=_("Visible companies"),
+        required=False,
+        queryset=Company.objects.none(),
+        widget=SubsidiaryAccessWidget,
+        help_text=_(
+            "If this company has subsidiaries, check the ones this user may see "
+            "in its dashboards, including the company itself. You can select more "
+            "than one. Leave them all unchecked to show every company."
+        ),
+    )
 
     class Meta:
         model = CompanyMembership
         fields = ("user", "company")
+
+    class Media:
+        js = (
+            "js/admin_company_department_access.js",
+            "js/admin_company_subsidiary_access.js",
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -728,17 +832,51 @@ class CompanyMembershipForm(forms.ModelForm):
         self.fields["template_permissions"].initial = initial
         if "user" in self.fields:
             self.fields["user"].required = False
+        company_id = self._company_id_for_departments()
+        department_field = self.fields["department_access"]
+        if company_id:
+            department_field.queryset = Department.objects.filter(
+                is_deleted=False,
+                is_active=True,
+                company_id=company_id,
+            ).order_by("name")
+        department_field.widget.catalog = department_catalog_by_company()
+        self._configure_subsidiary_access(company_id)
+        if instance and instance.pk and instance.user_id and company_id:
+            department_field.initial = list(
+                UserDepartmentAccess.objects.filter(
+                    user_id=instance.user_id,
+                    is_deleted=False,
+                    department__company_id=company_id,
+                    department__is_deleted=False,
+                ).values_list("department_id", flat=True)
+            )
+
+    def _company_id_for_departments(self):
+        if self.is_bound:
+            raw = self.data.get(self.add_prefix("company"))
+            if raw in (None, ""):
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return None
+        return getattr(self.instance, "company_id", None)
 
     def save(self, commit=True):
         obj = super().save(commit=commit)
         if commit and obj.pk:
             self._save_template_permissions(obj)
+            self._save_department_access(obj)
+            self._save_subsidiary_access(obj)
         return obj
 
     def save_m2m(self):
         super().save_m2m()
         if self.instance.pk:
             self._save_template_permissions(self.instance)
+            self._save_department_access(self.instance)
+            self._save_subsidiary_access(self.instance)
 
     def _save_template_permissions(self, membership):
         from audit_app.models import apply_membership_template_accesses
@@ -747,5 +885,104 @@ class CompanyMembershipForm(forms.ModelForm):
         if access_map:
             apply_membership_template_accesses(membership, access_map)
 
+    def _save_department_access(self, membership):
+        if not membership.user_id or not membership.company_id:
+            return
+        selected = [
+            department
+            for department in (self.cleaned_data.get("department_access") or [])
+            if department.company_id == membership.company_id
+            and not department.is_deleted
+            and department.is_active
+        ]
+        selected_ids = {department.pk for department in selected}
+        existing = {
+            access.department_id: access
+            for access in UserDepartmentAccess.objects.filter(
+                user_id=membership.user_id,
+                department__company_id=membership.company_id,
+            )
+        }
+        now = timezone.now()
+        for department_id, access in existing.items():
+            if department_id in selected_ids:
+                if access.is_deleted:
+                    access.is_deleted = False
+                    access.deleted_at = None
+                    access.save()
+            elif not access.is_deleted:
+                access.is_deleted = True
+                access.deleted_at = now
+                access.save()
+        for department in selected:
+            if department.pk not in existing:
+                UserDepartmentAccess.objects.create(
+                    user_id=membership.user_id,
+                    department=department,
+                )
 
+    def _configure_subsidiary_access(self, company_id):
+        from audit_app.subsidiary_access import (
+            membership_subsidiary_choices,
+            subsidiary_catalog_by_parent,
+        )
 
+        field = self.fields["subsidiary_access"]
+        field.widget.catalog = subsidiary_catalog_by_parent()
+        options = membership_subsidiary_choices(company_id)
+        if options:
+            field.queryset = Company.objects.filter(
+                pk__in=[company.pk for company in options]
+            )
+            field.widget.choices = [(company.pk, str(company)) for company in options]
+        else:
+            field.queryset = Company.objects.none()
+            field.widget.choices = []
+        instance = self.instance
+        if instance and instance.pk and instance.user_id and options:
+            field.initial = list(
+                UserSubsidiaryAccess.objects.filter(
+                    user_id=instance.user_id,
+                    is_deleted=False,
+                    company_id__in=[company.pk for company in options],
+                ).values_list("company_id", flat=True)
+            )
+
+    def _save_subsidiary_access(self, membership):
+        from audit_app.subsidiary_access import membership_subsidiary_choices
+
+        if not membership.user_id or not membership.company_id:
+            return
+        options = membership_subsidiary_choices(membership.company_id)
+        scope_ids = {company.pk for company in options}
+        if not scope_ids:
+            return
+        selected_ids = {
+            company.pk
+            for company in (self.cleaned_data.get("subsidiary_access") or [])
+            if company.pk in scope_ids
+        }
+        existing = {
+            access.company_id: access
+            for access in UserSubsidiaryAccess.objects.filter(
+                user_id=membership.user_id,
+                company_id__in=scope_ids,
+            )
+        }
+        now = timezone.now()
+        for company_id, access in existing.items():
+            if company_id in selected_ids:
+                if access.is_deleted:
+                    access.is_deleted = False
+                    access.deleted_at = None
+                    access.save()
+            elif not access.is_deleted:
+                access.is_deleted = True
+                access.deleted_at = now
+                access.save()
+        for company_id in selected_ids:
+            if company_id not in existing:
+                UserSubsidiaryAccess.objects.create(
+                    user_id=membership.user_id,
+                    company_id=company_id,
+                )

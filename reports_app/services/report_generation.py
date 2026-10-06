@@ -541,10 +541,13 @@ def inject_dashboard_serve_context(
     allowed_attachment_kinds: set[str] | frozenset[str] | None = None,
     dashboard_status: str = "",
     department_scope_tokens: list[str] | None = None,
+    subsidiary_scope_tokens: list[str] | None = None,
 ) -> str:
     from audit_app.department_access import apply_department_scope_to_html
+    from audit_app.subsidiary_access import apply_subsidiary_scope_to_html
 
     html_out = apply_department_scope_to_html(html_out, department_scope_tokens)
+    html_out = apply_subsidiary_scope_to_html(html_out, subsidiary_scope_tokens)
     html_out = refresh_deck_attach_toggle_label(html_out)
     h = inject_web_mail_api(html_out, mail_url, plan_url)
     if allowed_attachment_kinds is not None:

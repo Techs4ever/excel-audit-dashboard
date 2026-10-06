@@ -16,10 +16,6 @@ def _membership_formset_fields(*, total: str = "0") -> dict[str, str]:
         "company_memberships-INITIAL_FORMS": "0",
         "company_memberships-MIN_NUM_FORMS": "0",
         "company_memberships-MAX_NUM_FORMS": "1000",
-        "department_accesses-TOTAL_FORMS": "0",
-        "department_accesses-INITIAL_FORMS": "0",
-        "department_accesses-MIN_NUM_FORMS": "0",
-        "department_accesses-MAX_NUM_FORMS": "1000",
     }
 
 
@@ -138,18 +134,18 @@ def test_admin_change_non_superuser_page_loads(admin_client, btc_company):
     content = response.content.decode()
     assert 'name="receive_workflow_emails"' in content
     assert 'id="id_receive_workflow_emails"' in content
-    dept_at = content.find('id="department_accesses-heading"')
-    company_at = content.find('id="company_memberships-heading"')
-    assert 0 <= dept_at < company_at
+    assert "department_accesses-group" not in content
     assert "user-perm-tabs" not in content
     assert "admin_user_permission_tabs.js" not in content
     assert "password_rules.js" in content
-    assert 'id="dept-access-add-all"' in content
-    assert 'id="dept-access-remove-all"' in content
-    assert "admin_department_access_bulk.js" in content
-    bulk_at = content.find('class="dept-access-bulk"')
-    first_field_at = content.find('id="department_accesses-0"')
-    assert 0 <= bulk_at < first_field_at
+    assert 'id="company_memberships-heading"' in content
+    assert "tpl-perm-board" in content
+    template_at = content.find("field-template_permissions")
+    department_at = content.find("field-department_access")
+    assert 0 <= template_at < department_at
+    assert 'id="id_company_memberships-0-department_access"' in content
+    assert "selectfilter" in content
+    assert "admin_company_department_access.js" in content
 
 
 @pytest.mark.django_db

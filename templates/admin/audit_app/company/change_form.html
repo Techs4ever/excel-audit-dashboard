@@ -1,0 +1,32 @@
+{% extends "admin/change_form_v2.html" %}
+{% load i18n %}
+
+{% block field_sets %}
+{% for fieldset in adminform %}
+  {% if "company-attachments" in fieldset.classes %}
+    {% for inline_admin_formset in inline_admin_formsets %}
+      {% include inline_admin_formset.opts.template %}
+    {% endfor %}
+  {% endif %}
+  {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
+{% endfor %}
+{% if inherited_from %}
+<fieldset class="module aligned company-inherited-departments">
+  <h2>{% translate "Departments" %}</h2>
+  <div class="description">
+    {% blocktranslate with parent=inherited_from %}Subsidiaries use the departments of the parent company {{ parent }}.{% endblocktranslate %}
+  </div>
+  {% if inherited_departments %}
+  <ul class="company-inherited-departments__list">
+    {% for department in inherited_departments %}
+    <li>{{ department.name }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>{% translate "The parent company has no departments yet." %}</p>
+  {% endif %}
+</fieldset>
+{% endif %}
+{% endblock %}
+
+{% block inline_field_sets %}{% endblock %}

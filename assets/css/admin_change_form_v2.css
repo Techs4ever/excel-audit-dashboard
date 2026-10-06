@@ -654,7 +654,6 @@ html[dir="rtl"] #content-start .admin-cl-v2-form__panel .select2-container .sele
     margin-bottom: 1rem;
 }
 
-#content-start .admin-cl-v2-form__panel #department_accesses-group,
 #content-start .admin-cl-v2-form__panel #company_memberships-group {
     border: none !important;
     border-radius: 0 !important;
@@ -664,7 +663,6 @@ html[dir="rtl"] #content-start .admin-cl-v2-form__panel .select2-container .sele
     background: transparent !important;
 }
 
-#content-start .admin-cl-v2-form__panel #department_accesses-group h2.inline-heading,
 #content-start .admin-cl-v2-form__panel #company_memberships-group h2.inline-heading {
     display: flex !important;
     align-items: center;
@@ -681,7 +679,6 @@ html[dir="rtl"] #content-start .admin-cl-v2-form__panel .select2-container .sele
     box-shadow: none !important;
 }
 
-#content-start .admin-cl-v2-form__panel #department_accesses-group h2.inline-heading::before,
 #content-start .admin-cl-v2-form__panel #company_memberships-group h2.inline-heading::before {
     font-family: "bootstrap-icons";
     display: inline-flex;
@@ -697,46 +694,8 @@ html[dir="rtl"] #content-start .admin-cl-v2-form__panel .select2-container .sele
     flex-shrink: 0;
 }
 
-#content-start .admin-cl-v2-form__panel #department_accesses-group h2.inline-heading::before {
-    content: "\F2EE";
-}
-
 #content-start .admin-cl-v2-form__panel #company_memberships-group h2.inline-heading::before {
     content: "\F1DD";
-}
-
-#content-start .admin-cl-v2-form__panel #department_accesses-group .description {
-    margin-top: -0.35rem;
-}
-
-#content-start .admin-cl-v2-form__panel #department_accesses-group .dept-access-bulk {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin: 0 0 0.85rem;
-}
-
-#content-start .admin-cl-v2-form__panel #department_accesses-group .dept-access-bulk__btn {
-    appearance: none;
-    border: 1px solid var(--cl-v2-brand);
-    background: var(--cl-v2-brand);
-    color: #fff;
-    border-radius: 999px;
-    padding: 0.4rem 0.9rem;
-    font: inherit;
-    font-size: 0.84rem;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-#content-start .admin-cl-v2-form__panel #department_accesses-group .dept-access-bulk__btn--remove {
-    background: transparent;
-    color: var(--cl-v2-text);
-    border-color: var(--cl-v2-border);
-}
-
-#content-start .admin-cl-v2-form__panel #department_accesses-group tr.dept-access-removed {
-    display: none !important;
 }
 
 #content-start .admin-cl-v2-form__panel .inline-group {
@@ -745,6 +704,10 @@ html[dir="rtl"] #content-start .admin-cl-v2-form__panel .select2-container .sele
     box-shadow: var(--cl-v2-shadow-soft) !important;
     margin: 1.25rem 0 !important;
     overflow: hidden;
+}
+
+#content-start .admin-cl-v2-form__panel #company_memberships-group.inline-group {
+    overflow: visible;
 }
 
 #content-start .admin-cl-v2-form__panel .inline-group h2,
@@ -1441,4 +1404,25 @@ html[data-theme="dark"] #content-start .admin-tz-combobox__search:focus {
 html[data-theme="dark"] .admin-tz-combobox__list::-webkit-scrollbar-thumb,
 html[data-theme="dark"] #content-start .admin-tz-combobox__list::-webkit-scrollbar-thumb {
     background: rgba(91, 141, 239, 0.35);
+}
+
+.subsidiary-access__list {
+    list-style: none;
+    margin: 0.35rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.subsidiary-access__list label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.form-row.field-subsidiary_access.subsidiary-access-hidden,
+.form-row.field-subsidiary_access:has(.subsidiary-access.is-empty) {
+    display: none !important;
 }

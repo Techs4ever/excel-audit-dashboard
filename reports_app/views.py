@@ -32,6 +32,7 @@ from audit_app.company_access import (
     user_must_select_company,
 )
 from audit_app.department_access import department_scope_tokens_for_dashboard
+from audit_app.subsidiary_access import subsidiary_scope_tokens_for_dashboard
 from audit_app.models import (
     Dashboard,
     DashboardTemplateType,
@@ -546,6 +547,9 @@ def _inject_served_dashboard_html(
         allowed_attachment_kinds=allowed_kinds,
         dashboard_status=dashboard.status or "",
         department_scope_tokens=department_scope_tokens_for_dashboard(
+            request.user, dashboard
+        ),
+        subsidiary_scope_tokens=subsidiary_scope_tokens_for_dashboard(
             request.user, dashboard
         ),
     )

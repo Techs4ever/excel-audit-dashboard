@@ -147,6 +147,10 @@
     if (isSubsidiary) {
       scheduleParentSelect2LayoutFix();
     }
+    var departmentGroup = document.querySelector("#departments-group");
+    if (departmentGroup) {
+      departmentGroup.style.display = isSubsidiary ? "none" : "";
+    }
   }
 
   patchDjangoAdminSelect2();

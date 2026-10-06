@@ -53,11 +53,14 @@ def department_scope_tokens_for_dashboard(user, dashboard) -> list[str] | None:
         for perm in _FULL_DATA_PERMS:
             if has_company_perm(user, company, perm, template_code):
                 return None
+    if company is None:
+        return None
     accesses = UserDepartmentAccess.objects.filter(
         user=user,
         is_deleted=False,
         department__is_deleted=False,
         department__is_active=True,
+        department__company_id=company.pk,
     ).select_related("department")
     tokens: list[str] = []
     seen: set[str] = set()
