@@ -21,7 +21,7 @@ COMPANY_KIND_CHOICES = [
 
 
 ATTACHMENT_KIND_CHOICES = [
-    ("deck", _("Company wise Audit committee report")),
+    ("deck", _("Audit, Risk, and Compliance Committee Report")),
     ("highRisk", _("High Risk Observations & Emerging Risks")),
     ("tgaViolations", _("TGA Violations Report")),
     ("missingVehicle", _("Missing Vehicle Report")),
@@ -29,6 +29,9 @@ ATTACHMENT_KIND_CHOICES = [
     ("specialAssignment", _("Special Assignment Report")),
     ("accApprovedMoM", _("ACC Aproved MoM")),
     ("internalAuditDetailed", _("Internal Audit Detailed Reports")),
+    ("legislation", _("التشريعات و الانظمة و القوانين")),
+    ("complianceDetailed", _("تقرير ادارة الالتزام التفصيلي")),
+    ("complianceQuarterly", _("تقرير ادارة الالتزام الربعي")),
 ]
 
 ATTACHMENT_KIND_CODES = [code for code, _ in ATTACHMENT_KIND_CHOICES]
@@ -262,6 +265,14 @@ class CompanyMembership(AdminSoftDeleteFields):
             "Published dashboards cannot be deleted."
         ),
     )
+    can_hide_dashboards = models.BooleanField(
+        default=False,
+        verbose_name=_("Can hide dashboards"),
+        help_text=_(
+            "Hide every dashboard of this template from all users, including the creator. "
+            "Only members with this permission can show it again."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
 
     class Meta:
@@ -287,6 +298,7 @@ MEMBERSHIP_PERM_FIELDS = (
     "can_view_own_only",
     "can_review",
     "can_delete_drafts",
+    "can_hide_dashboards",
 )
 
 
@@ -319,6 +331,10 @@ class CompanyMembershipTemplateAccess(models.Model):
     can_delete_drafts = models.BooleanField(
         default=False,
         verbose_name=_("Can delete draft dashboards"),
+    )
+    can_hide_dashboards = models.BooleanField(
+        default=False,
+        verbose_name=_("Can hide dashboards"),
     )
 
     class Meta:
@@ -389,6 +405,217 @@ def apply_membership_template_accesses(
     )
 
 
+class Department(AdminSoftDeleteFields):
+    """Department of one main company, used to limit that company's dashboards."""
+
+    sync_is_active_with_soft_delete = True
+
+    company = models.ForeignKey(
+        "Company",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=False,
+        related_name="departments",
+        verbose_name=_("Company"),
+    )
+    name = models.CharField(
+        max_length=255,
+        verbose_name=_("Department"),
+        help_text=_(
+            "Must match the Department value in the Excel file "
+            "(spacing and letter case are ignored)."
+        ),
+    )
+    excel_aliases = models.TextField(
+        blank=True,
+        verbose_name=_("Excel department names"),
+        help_text=_(
+            "Optional extra names as they appear in the Excel Department column, "
+            "one per line. The department name itself is always accepted."
+        ),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    active_name_key = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Active name key"),
+    )
+
+    class Meta:
+        verbose_name = _("Department")
+        verbose_name_plural = _("Departments")
+        ordering = ["company__code", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "active_name_key"],
+                name="uniq_active_department_name_company",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if self.is_deleted:
+            self.active_name_key = None
+        else:
+            self.active_name_key = " ".join(
+                str(self.name or "").replace("\u00a0", " ").split()
+            ).casefold()[:255] or None
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"active_name_key"}
+        super().save(*args, **kwargs)
+
+    def match_tokens(self) -> list[str]:
+        tokens: list[str] = []
+        seen: set[str] = set()
+        raw_values = [self.name, *(self.excel_aliases or "").splitlines()]
+        for item in raw_values:
+            text = " ".join(str(item or "").replace("\u00a0", " ").split())
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            tokens.append(text)
+        return tokens
+
+    def clean(self) -> None:
+        super().clean()
+        self.name = " ".join(str(self.name or "").replace("\u00a0", " ").split())
+        alias_lines = []
+        for line in (self.excel_aliases or "").splitlines():
+            text = " ".join(str(line or "").replace("\u00a0", " ").split())
+            if text:
+                alias_lines.append(text)
+        self.excel_aliases = "\n".join(alias_lines)
+        if not self.name or not self.company_id:
+            return
+        if not self.company.is_main:
+            raise ValidationError(
+                _(
+                    "Departments belong to the main company. Subsidiaries inherit them."
+                )
+            )
+        others = Department.objects.filter(
+            is_deleted=False,
+            company_id=self.company_id,
+        )
+        if self.pk:
+            others = others.exclude(pk=self.pk)
+        folded = self.name.casefold()
+        for other in others:
+            if other.name.casefold() == folded:
+                raise ValidationError(
+                    {
+                        "name": _(
+                            "A department with this name already exists for this company."
+                        )
+                    }
+                )
+
+
+class UserDepartmentAccess(AdminSoftDeleteFields):
+    """Departments a user may see on dashboards assigned to them."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="department_accesses",
+        verbose_name=_("User"),
+    )
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.PROTECT,
+        related_name="user_accesses",
+        verbose_name=_("Department"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    active_department_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Active department id"),
+    )
+
+    class Meta:
+        verbose_name = _("Department access")
+        verbose_name_plural = _("Department access")
+        ordering = ["department__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "active_department_id"],
+                name="uniq_active_user_department_access",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} · {self.department}"
+
+    def save(self, *args, **kwargs):
+        if self.is_deleted:
+            self.active_department_id = None
+        else:
+            self.active_department_id = self.department_id
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"active_department_id"}
+        super().save(*args, **kwargs)
+
+
+class UserSubsidiaryAccess(AdminSoftDeleteFields):
+    """Parent or subsidiary companies whose dashboard rows a user may see."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="subsidiary_accesses",
+        verbose_name=_("User"),
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.PROTECT,
+        related_name="user_subsidiary_accesses",
+        verbose_name=_("Company"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    active_company_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Active company id"),
+    )
+
+    class Meta:
+        verbose_name = _("Subsidiary access")
+        verbose_name_plural = _("Subsidiary access")
+        ordering = ["company__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "active_company_id"],
+                name="uniq_active_user_subsidiary_access",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} · {self.company}"
+
+    def save(self, *args, **kwargs):
+        if self.is_deleted:
+            self.active_company_id = None
+        else:
+            self.active_company_id = self.company_id
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"active_company_id"}
+        super().save(*args, **kwargs)
+
+
 class CompanyAttachmentSetting(models.Model):
     """Enable or disable optional upload attachments per company."""
 
@@ -424,8 +651,8 @@ class CompanyAttachmentSetting(models.Model):
         super().clean()
         if self.max_files is not None and self.max_files < 1:
             raise ValidationError({"max_files": _("Enter at least 1 file.")})
-        if self.max_files is not None and self.max_files > 20:
-            raise ValidationError({"max_files": _("Maximum allowed is 20 files.")})
+        if self.max_files is not None and self.max_files > 100:
+            raise ValidationError({"max_files": _("Maximum allowed is 100 files.")})
 
 
 class UploadSession(AdminSoftDeleteFields):
@@ -625,6 +852,15 @@ class Dashboard(models.Model):
         verbose_name=_("Status"),
         db_index=True,
     )
+    is_hidden = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name=_("Hidden from everyone"),
+        help_text=_(
+            "When enabled, nobody can see or open this dashboard except users "
+            "who have the hide permission for its template."
+        ),
+    )
     published_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -662,6 +898,18 @@ class Dashboard(models.Model):
         verbose_name=_("Deleted by"),
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created at"))
+    linked_dashboard = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="linked_from_dashboards",
+        verbose_name=_("Linked published dashboard"),
+        help_text=_(
+            "Inherit attachment files from this published dashboard. "
+            "Must be the same company and template. The chain includes that dashboard's own link."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Dashboard")
@@ -676,6 +924,23 @@ class Dashboard(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def clean(self):
+        super().clean()
+        if not self.linked_dashboard_id:
+            return
+        from reports_app.dashboard_links import DashboardLinkError, validate_link_target
+
+        try:
+            validate_link_target(
+                self,
+                self.linked_dashboard,
+                company=self.company,
+                template_type=self.template_type,
+                allow_current=True,
+            )
+        except DashboardLinkError as exc:
+            raise ValidationError({"linked_dashboard": exc.message_for_locale(None)}) from exc
 
     @property
     def is_published(self) -> bool:

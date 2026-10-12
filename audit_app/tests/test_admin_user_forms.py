@@ -134,6 +134,18 @@ def test_admin_change_non_superuser_page_loads(admin_client, btc_company):
     content = response.content.decode()
     assert 'name="receive_workflow_emails"' in content
     assert 'id="id_receive_workflow_emails"' in content
+    assert "department_accesses-group" not in content
+    assert "user-perm-tabs" not in content
+    assert "admin_user_permission_tabs.js" not in content
+    assert "password_rules.js" in content
+    assert 'id="company_memberships-heading"' in content
+    assert "tpl-perm-board" in content
+    template_at = content.find("field-template_permissions")
+    department_at = content.find("field-department_access")
+    assert 0 <= template_at < department_at
+    assert 'id="id_company_memberships-0-department_access"' in content
+    assert "selectfilter" in content
+    assert "admin_company_department_access.js" in content
 
 
 @pytest.mark.django_db

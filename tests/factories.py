@@ -33,6 +33,7 @@ def make_membership(
     can_view_own_only: bool = False,
     can_review: bool = False,
     can_delete_drafts: bool = False,
+    can_hide_dashboards: bool = False,
 ) -> CompanyMembership:
     from audit_app.models import apply_membership_template_accesses, known_template_codes
 
@@ -44,6 +45,7 @@ def make_membership(
         can_view_own_only=can_view_own_only,
         can_review=can_review,
         can_delete_drafts=can_delete_drafts,
+        can_hide_dashboards=can_hide_dashboards,
     )
     flags = {
         "can_upload": can_upload,
@@ -51,6 +53,7 @@ def make_membership(
         "can_view_own_only": can_view_own_only,
         "can_review": can_review,
         "can_delete_drafts": can_delete_drafts,
+        "can_hide_dashboards": can_hide_dashboards,
     }
     apply_membership_template_accesses(
         membership,

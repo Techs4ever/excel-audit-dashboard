@@ -52,13 +52,40 @@ def test_iad_only_upload_hides_compliance_nav(btc_company):
     response = client.get("/upload/?template=IAD")
     html = response.content.decode()
     assert response.status_code == 200
-    assert "Internal Audit Dashboard" in html or "لوحة التدقيق الداخلي" in html
+    assert "Internal Audit" in html or "التدقيق الداخلي" in html
     assert 'href="/upload/?template=CD"' not in html
     assert 'href="/?template=CD"' not in html
     assert 'href="/upload/?template=IAD"' in html
 
     denied = client.get("/upload/?template=CD")
     assert denied.status_code == 302
+    sidebar = html.split('<nav class="sb-nav">', 1)[1].split("</nav>", 1)[0]
+    assert sidebar.index("Dashboard") < sidebar.index("Upload Files") or sidebar.index("لوحة التحكم") < sidebar.index("رفع الملفات")
+    assert sidebar.count("Internal Audit") + sidebar.count("التدقيق الداخلي") == 2
+
+
+@pytest.mark.django_db
+def test_sidebar_groups_dashboard_then_upload(btc_company, uploader_user):
+    client = Client()
+    client.force_login(uploader_user)
+    client.post("/select-company/", {"company_id": btc_company.pk})
+    html = client.get("/").content.decode()
+    sidebar = html.split('<nav class="sb-nav">', 1)[1].split("</nav>", 1)[0]
+    assert "Audit and Compliance Dashboard" in html or "لوحة التدقيق والامتثال" in html
+    assert 'class="sb-brand-text"' in html
+    assert "<span>Audit Dashboard</span>" not in html
+    dash = sidebar.index("Dashboard") if "Dashboard" in sidebar else sidebar.index("لوحة التحكم")
+    upload = sidebar.index("Upload Files") if "Upload Files" in sidebar else sidebar.index("رفع الملفات")
+    assert dash < upload
+    assert 'href="/?template=IAD"' in sidebar
+    assert 'href="/?template=CD"' in sidebar
+    assert 'href="/upload/?template=IAD"' in sidebar
+    assert 'href="/upload/?template=CD"' in sidebar
+    iad_dash = sidebar.index('href="/?template=IAD"')
+    cd_dash = sidebar.index('href="/?template=CD"')
+    iad_up = sidebar.index('href="/upload/?template=IAD"')
+    cd_up = sidebar.index('href="/upload/?template=CD"')
+    assert iad_dash < cd_dash < iad_up < cd_up
 
 
 @pytest.mark.django_db

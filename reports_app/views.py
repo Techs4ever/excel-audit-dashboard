@@ -25,11 +25,14 @@ if _BASE_DIR not in sys.path:
 from web_strings import get_ui  # noqa: E402
 from dashboard_locale import normalize_locale  # noqa: E402
 
+from audit_app.dashboard_template_codes import TEMPLATE_CODE_IAD
 from audit_app.company_access import (
     get_enabled_attachment_kinds,
     template_codes_with_perm,
     user_must_select_company,
 )
+from audit_app.department_access import department_scope_tokens_for_dashboard
+from audit_app.subsidiary_access import subsidiary_scope_tokens_for_dashboard
 from audit_app.models import (
     Dashboard,
     DashboardTemplateType,
@@ -58,6 +61,7 @@ from .dashboard_workflow import (
     get_dashboard_viewer_attachment_map,
     get_dashboard_viewer_user_ids,
     has_delete_perm,
+    has_hide_perm,
     has_review_perm,
     has_upload_perm,
     has_dashboard_list_perm,
@@ -69,15 +73,18 @@ from .dashboard_workflow import (
     submit_dashboard,
     user_allowed_attachment_kinds,
 )
+from reports_app.dashboard_links import link_choices
 from reports_app.workflow_engine import company_uses_workflow_v2
 from .services.report_generation import (
     ATTACHMENT_SPECS,
+    attachment_specs_for_template,
     build_attachment_form_slots,
     version_payload,
     generate_from_db_data,
     inject_dashboard_serve_context,
     report_locale_for_dashboard,
     store_upload_to_db,
+    merge_preserved_user_edits,
     update_dashboard_review_attachments,
     validate_dashboard_user_edits_payload,
     _existing_excel_names,
@@ -140,8 +147,8 @@ def page_not_found_view(request, exception=None):
     return render_page_not_found(request)
 
 
-def _clear_dashboard_html_cache(dashboard: Dashboard) -> None:
-    """Remove generated HTML cache files only (keep deck attachments)."""
+def _clear_one_dashboard_html_cache(dashboard: Dashboard) -> None:
+    """Remove generated HTML cache files for one dashboard (keep deck attachments)."""
     media_root = Path(settings.MEDIA_ROOT)
     dashboards_dir = media_root / "dashboards"
     if dashboards_dir.is_dir():
@@ -158,6 +165,18 @@ def _clear_dashboard_html_cache(dashboard: Dashboard) -> None:
             except OSError:
                 pass
         dashboard.html_file = ""
+
+
+def _clear_dashboard_html_cache(dashboard: Dashboard) -> None:
+    """Drop this dashboard's HTML cache and any dashboard that inherits from it."""
+    from reports_app.dashboard_links import iter_descendant_dashboards
+
+    _clear_one_dashboard_html_cache(dashboard)
+    for child in iter_descendant_dashboards(dashboard):
+        had_cache = bool(child.html_file)
+        _clear_one_dashboard_html_cache(child)
+        if had_cache:
+            child.save(update_fields=["html_file"])
 
 
 def _cleanup_dashboard_files(dashboard: Dashboard) -> None:
@@ -189,6 +208,9 @@ def _dashboard_cache_fresh(cache_path: Path) -> bool:
         return False
     try:
         gen_mtime = Path(_ai_excel_dashboard_mod.__file__).stat().st_mtime
+        locale_py = Path(__file__).resolve().parents[1] / "dashboard_locale.py"
+        if locale_py.is_file():
+            gen_mtime = max(gen_mtime, locale_py.stat().st_mtime)
         ar_pkg = Path(__file__).resolve().parents[1] / "arabic_compliance_dashboard"
         ar_gen = ar_pkg / "generator.py"
         if ar_gen.is_file():
@@ -233,7 +255,25 @@ def _upload_form_from_post(post) -> dict:
         "description": post.get("description", "").strip(),
         "template_type": post.get("template_type", "").strip(),
         "resubmit_dashboard_id": post.get("resubmit_dashboard_id", "").strip(),
+        "linked_dashboard_id": post.get("linked_dashboard_id", "").strip(),
     }
+
+
+def _upload_attachment_slots(dashboard, *, locale: str, company, template_codes: list[str]) -> list:
+    """Slots for the dashboard being edited, or every template offered on a new upload."""
+    if dashboard is not None:
+        return build_attachment_form_slots(dashboard, locale=locale, company=company)
+    slots: list = []
+    for code in template_codes or [TEMPLATE_CODE_IAD]:
+        slots.extend(
+            build_attachment_form_slots(
+                None,
+                locale=locale,
+                company=company,
+                template_type=code,
+            )
+        )
+    return slots
 
 
 def _upload_page_context(request, form: dict | None = None) -> dict:
@@ -295,6 +335,14 @@ def _upload_page_context(request, form: dict | None = None) -> dict:
             and session
             and session.raw_data_json
         )
+    company = _active_company(request)
+    posted_link = str(form.get("linked_dashboard_id") or "").strip()
+    if posted_link.isdigit():
+        selected_link_id = int(posted_link)
+    elif resubmit_dashboard and resubmit_dashboard.linked_dashboard_id:
+        selected_link_id = resubmit_dashboard.linked_dashboard_id
+    else:
+        selected_link_id = None
     return {
         "icon_choices": ICON_CHOICES,
         "template_types": active_templates,
@@ -302,15 +350,20 @@ def _upload_page_context(request, form: dict | None = None) -> dict:
         "is_edit_mode": resubmit_dashboard is not None,
         "existing_excel_names": existing_excel_names,
         "has_existing_excel": has_existing_excel,
-        "attachment_slots": build_attachment_form_slots(
+        "attachment_slots": _upload_attachment_slots(
             resubmit_dashboard,
             locale=lang,
             company=_active_company(request),
+            template_codes=[item.code for item in active_templates]
+            or [selected_template or TEMPLATE_CODE_IAD],
         ),
         "form": form,
         "selected_icon": selected_icon,
         "selected_template": selected_template,
         "dashboard_name_value": dashboard_name_value,
+        "link_targets": link_choices(company, resubmit_dashboard),
+        "selected_link_id": selected_link_id,
+        "show_dashboard_link": company is not None,
     }
 
 
@@ -492,6 +545,13 @@ def _inject_served_dashboard_html(
         can_save_user_edits=can_save,
         user_edits_json=dashboard.user_edits_json or "",
         allowed_attachment_kinds=allowed_kinds,
+        dashboard_status=dashboard.status or "",
+        department_scope_tokens=department_scope_tokens_for_dashboard(
+            request.user, dashboard
+        ),
+        subsidiary_scope_tokens=subsidiary_scope_tokens_for_dashboard(
+            request.user, dashboard
+        ),
     )
 
 
@@ -555,12 +615,11 @@ def dashboard_list(request):
         if filter_key not in valid_keys:
             filter_key = FILTER_ALL
         request.session["dashboard_list_filter"] = filter_key
-        if filter_key != FILTER_ALL:
-            dashboards = filter_dashboards_queryset(
-                dashboards, request.user, company, filter_key
-            )
     else:
         filter_key = FILTER_ALL
+    dashboards = filter_dashboards_queryset(
+        dashboards, request.user, company, filter_key
+    )
     deletable_dashboard_ids = {
         dashboard.pk
         for dashboard in dashboards
@@ -576,9 +635,13 @@ def dashboard_list(request):
         for dashboard in dashboards
         if can_user_return_published_to_review(request.user, dashboard, company)
     }
+    hideable_dashboard_ids = {
+        dashboard.pk
+        for dashboard in dashboards
+        if has_hide_perm(request.user, company, dashboard.template_type)
+    }
     undo_deleted_pk = None
     undo_deleted_name = ""
-    list_heading = ui.get(f"template_nav_{requested_template}") if requested_template else ""
     return render(
         request,
         "reports_app/dashboard_list.html",
@@ -587,6 +650,7 @@ def dashboard_list(request):
             "deletable_dashboard_ids": deletable_dashboard_ids,
             "manageable_viewer_dashboard_ids": manageable_viewer_dashboard_ids,
             "returnable_dashboard_ids": returnable_dashboard_ids,
+            "hideable_dashboard_ids": hideable_dashboard_ids,
             "can_review_dashboards": has_review_perm(
                 request.user, company, requested_template or None
             ),
@@ -596,7 +660,6 @@ def dashboard_list(request):
             "undo_deleted_pk": undo_deleted_pk,
             "undo_deleted_name": undo_deleted_name,
             "list_template": requested_template,
-            "list_heading": list_heading,
             "can_upload_files": has_upload_perm(
                 request.user, company, requested_template or None
             ),
@@ -651,10 +714,18 @@ def dashboard_detail(request, pk: int):
             "can_delete_dashboard": can_user_delete_dashboard(
                 request.user, dashboard, company
             ),
+            "can_hide_dashboard": has_hide_perm(
+                request.user, company, dashboard.template_type
+            ),
             "can_upload_files": has_upload_perm(
                 request.user, company, dashboard.template_type
             ),
             "upload_url": f"{reverse('upload')}?template={dashboard.template_type}",
+            "link_targets": (
+                link_choices(company, dashboard) if can_manage_review_attachments else []
+            ),
+            "selected_link_id": dashboard.linked_dashboard_id,
+            "show_dashboard_link": can_manage_review_attachments,
         },
     )
 
@@ -694,6 +765,40 @@ def dashboard_restore(request, pk: int):
 
 @login_required
 @require_http_methods(["POST"])
+def dashboard_set_hidden(request, pk: int):
+    """Hide a dashboard from everyone, or show it again. Hide permission only."""
+    lang = request.session.get("ui_lang", "en")
+    ui = get_ui(lang)
+    dashboard = _resolve_dashboard_request(request, pk)
+    if not dashboard or dashboard.is_deleted:
+        return render_page_not_found(request)
+
+    company = _active_company(request) or dashboard.company
+    if not has_hide_perm(request.user, company, dashboard.template_type):
+        messages.error(request, ui["alert_no_hide_perm"])
+        target = reverse("dashboard_list")
+        if dashboard.template_type:
+            target = f"{target}?template={dashboard.template_type}"
+        return redirect(target)
+
+    want_hidden = request.POST.get("hidden") == "1"
+    if dashboard.is_hidden != want_hidden:
+        dashboard.is_hidden = want_hidden
+        dashboard.save(update_fields=["is_hidden"])
+    messages.success(
+        request,
+        ui["dl_hide_success"] if want_hidden else ui["dl_unhide_success"],
+    )
+    if request.POST.get("next") == "detail":
+        return redirect("dashboard_detail", pk=dashboard.pk)
+    target = reverse("dashboard_list")
+    if dashboard.template_type:
+        target = f"{target}?template={dashboard.template_type}"
+    return redirect(target)
+
+
+@login_required
+@require_http_methods(["POST"])
 def dashboard_user_edits(request, pk: int):
     """Persist audit-plan table edits and review notes for a dashboard."""
     import json
@@ -709,7 +814,15 @@ def dashboard_user_edits(request, pk: int):
     try:
         raw = request.body.decode("utf-8") if request.body else ""
         data = json.loads(raw or "{}")
+        if dashboard.status != DashboardStatus.DRAFT and isinstance(data, dict):
+            data = dict(data)
+            data["complianceAmbassadorsTouched"] = False
         payload = validate_dashboard_user_edits_payload(data)
+        payload = merge_preserved_user_edits(
+            dashboard.user_edits_json or "",
+            data,
+            payload,
+        )
     except (json.JSONDecodeError, ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "invalid_payload"}, status=400)
 
@@ -721,7 +834,7 @@ def dashboard_user_edits(request, pk: int):
 @login_required
 @require_http_methods(["POST"])
 def dashboard_review_attachments(request, pk: int):
-    """Allow reviewer to add/replace/remove deck attachments before publish."""
+    """Allow an approver to add, replace, or remove attachments before or after publish."""
     lang = request.session.get("ui_lang", "en")
     ui = get_ui(lang)
 
@@ -788,6 +901,7 @@ def dashboard_serve(request, pk: int):
         content = _inject_served_dashboard_html(request, dashboard, cache_path.read_text(encoding="utf-8"))
         resp = HttpResponse(content, content_type="text/html; charset=utf-8")
         resp["X-Frame-Options"] = "SAMEORIGIN"
+        resp["Cache-Control"] = "no-store"
         return resp
 
     # 2. Generate from DB if data is available
@@ -807,6 +921,7 @@ def dashboard_serve(request, pk: int):
         content = _inject_served_dashboard_html(request, dashboard, html_out)
         resp = HttpResponse(content, content_type="text/html; charset=utf-8")
         resp["X-Frame-Options"] = "SAMEORIGIN"
+        resp["Cache-Control"] = "no-store"
         return resp
 
     # 3. Legacy: serve from the stored html_file path
@@ -818,6 +933,7 @@ def dashboard_serve(request, pk: int):
             )
             resp = HttpResponse(content, content_type="text/html; charset=utf-8")
             resp["X-Frame-Options"] = "SAMEORIGIN"
+            resp["Cache-Control"] = "no-store"
             return resp
 
     # 4. Nothing to serve
@@ -1016,6 +1132,10 @@ def _load_dashboard_for_viewer_assignment(request, pk: int) -> Dashboard | None:
         return None
     if company is None and not request.user.is_superuser:
         return None
+    if dashboard.is_hidden and not has_hide_perm(
+        request.user, company or dashboard.company, dashboard.template_type
+    ):
+        return None
     return dashboard
 
 
@@ -1043,7 +1163,7 @@ def _viewer_assignment_members_context(dashboard: Dashboard, ui: dict) -> tuple[
             )
     enabled = get_enabled_attachment_kinds(dashboard.company)
     kind_options: list[dict] = []
-    for spec in ATTACHMENT_SPECS:
+    for spec in attachment_specs_for_template(dashboard.template_type):
         if spec["kind"] not in enabled:
             continue
         label = ui.get(spec["ui_label"], spec["kind"])
@@ -1270,4 +1390,3 @@ def favicon(request):
     if icon_path.exists():
         return FileResponse(open(icon_path, "rb"), content_type="image/x-icon")
     return HttpResponse(status=204)
- 

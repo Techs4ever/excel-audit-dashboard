@@ -4,7 +4,7 @@
 
 {% block page_title %}
 <div class="breadcrumb-nav">
-    <a href="{% url 'dashboard_list' %}">
+    <a href="{% url 'dashboard_list' %}{% if dashboard.template_type %}?template={{ dashboard.template_type }}{% endif %}">
         <i class="bi bi-grid-3x3-gap-fill me-1"></i>{{ ui.dd_breadcrumb }}
     </a>
     <span class="sep"><i class="bi bi-chevron-{% if is_rtl %}left{% else %}right{% endif %}"></i></span>
@@ -33,6 +33,9 @@
     <span class="meta-pill"><i class="bi bi-info-circle"></i> {{ dashboard.description }}</span>
     {% endif %}
     <span class="meta-pill"><i class="bi bi-layout-wtf"></i> {{ dashboard.get_template_display_name }}</span>
+    {% if dashboard.linked_dashboard and not dashboard.linked_dashboard.is_deleted %}
+    <span class="meta-pill"><i class="bi bi-link-45deg"></i> {{ ui.link_pill }} {{ dashboard.linked_dashboard.name }}</span>
+    {% endif %}
     {% if dashboard.status == "draft" %}
     <span class="badge badge-status-draft"><i class="bi bi-pencil-square me-1"></i>{{ ui.wf_status_draft }}</span>
     {% elif dashboard.status == "under_review" %}
@@ -41,6 +44,9 @@
     <span class="badge badge-status-rejected"><i class="bi bi-x-circle me-1"></i>{{ ui.wf_status_rejected }}</span>
     {% else %}
     <span class="badge badge-status-published"><i class="bi bi-check-circle me-1"></i>{{ ui.wf_status_published }}</span>
+    {% endif %}
+    {% if dashboard.is_hidden %}
+    <span class="badge badge-status-hidden"><i class="bi bi-eye-slash me-1"></i>{{ ui.dl_hidden_badge }}</span>
     {% endif %}
 
     <div class="toolbar-actions {% if is_rtl %}me-auto{% else %}ms-auto{% endif %}">
@@ -83,6 +89,28 @@
            class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
             <i class="bi bi-box-arrow-up-right"></i> {{ ui.dd_open_new }}
         </a>
+        {% if can_hide_dashboard %}
+        <form method="post" action="{% url 'dashboard_set_hidden' dashboard.pk %}" class="js-hide-dashboard-form"
+              data-confirm="{% if dashboard.is_hidden %}{{ ui.dl_unhide_confirm|escapejs }}{% else %}{{ ui.dl_hide_confirm|escapejs }}{% endif %}"
+              data-name="{{ dashboard.name|escape }}">
+            {% csrf_token %}
+            <input type="hidden" name="hidden" value="{% if dashboard.is_hidden %}0{% else %}1{% endif %}">
+            <input type="hidden" name="next" value="detail">
+            <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1">
+                <i class="bi bi-{% if dashboard.is_hidden %}eye{% else %}eye-slash{% endif %}"></i>
+                {% if dashboard.is_hidden %}{{ ui.dl_unhide_btn }}{% else %}{{ ui.dl_hide_btn }}{% endif %}
+            </button>
+        </form>
+        {% endif %}
+        {% if can_delete_dashboard %}
+        <form method="post" action="{% url 'dashboard_delete' dashboard.pk %}" class="js-dashboard-delete-form"
+              data-dashboard-name="{{ dashboard.name|escape }}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1">
+                <i class="bi bi-trash-fill"></i> {{ ui.dl_delete_btn }}
+            </button>
+        </form>
+        {% endif %}
         {% if can_upload_files %}
         <a href="{{ upload_url }}" class="btn btn-sm btn-primary d-flex align-items-center gap-1">
             <i class="bi bi-plus-lg"></i> {{ ui.dd_new_btn }}
@@ -196,6 +224,7 @@
         <p class="small text-muted mb-3">{{ ui.wf_review_attach_hint }}</p>
         <form method="post" action="{% url 'dashboard_review_attachments' dashboard.pk %}" enctype="multipart/form-data" id="reviewAttachmentsForm">
             {% csrf_token %}
+            {% include "reports_app/_dashboard_link_field.html" %}
             <div id="reviewAttachmentSections">
             {% for slot in review_attachment_slots %}
             <div class="form-section js-attachment-slot mb-3" data-kind="{{ slot.kind }}" data-field-prefix="{{ slot.field_prefix }}">
@@ -219,15 +248,23 @@
                             <i class="bi bi-paperclip text-success"></i>
                             <span>{{ ui.upload_attach_current }}
                                 <span id="review-{{ slot.kind }}ExistingHeadCount">({{ slot.existing_count }}/{{ slot.max_files }})</span></span>
+                            {% if slot.has_own %}
                             <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
                                     onclick="markReviewAttachmentRemove('{{ slot.kind }}', '{{ slot.field_prefix }}')">
                                 <i class="bi bi-trash me-1"></i>{{ ui.upload_attach_remove_all_btn }}
                             </button>
+                            {% endif %}
                         </div>
                         <ul class="attach-existing__list" id="review-{{ slot.kind }}ExistingList">
                             {% for item in slot.existing_items %}
-                            <li class="attach-existing__item" data-path="{{ item.path }}">
+                            <li class="attach-existing__item{% if item.inherited %} attach-existing__item--inherited{% else %} attach-existing__item--own{% endif %}" data-path="{{ item.path }}">
                                 <span class="attach-existing__name" title="{{ item.name }}">{{ item.name }}</span>
+                                {% if item.inherited %}
+                                <span class="attach-existing__inherited">
+                                    <i class="bi bi-lock-fill"></i>
+                                    {{ ui.link_inherited_from }} {{ item.source_dashboard_name }}
+                                </span>
+                                {% else %}
                                 <label class="attach-existing__remove">
                                     <input type="checkbox"
                                            name="remove_{{ slot.field_prefix }}_item"
@@ -236,6 +273,7 @@
                                            data-kind="{{ slot.kind }}">
                                     <span>{{ ui.upload_attach_remove_one_btn }}</span>
                                 </label>
+                                {% endif %}
                             </li>
                             {% endfor %}
                         </ul>
@@ -259,6 +297,7 @@
                                accept=".pptx,.ppt,.pdf" multiple
                                data-max-files="{{ slot.max_files }}"
                                data-existing-count="{{ slot.existing_count }}"
+                               data-locked-count="{{ slot.inherited_count }}"
                                {% if slot.remaining_slots == 0 and slot.has_existing %}data-attach-full="1" aria-disabled="true"{% endif %}
                                onchange="onReviewAttachmentFile(this,'{{ slot.kind }}','{{ slot.field_prefix }}')">
                         <div class="fz-icon"><i class="bi {{ slot.zone_icon }}"></i></div>
@@ -285,6 +324,8 @@
         src="{% url 'dashboard_serve' dashboard.pk %}{% if request.GET.attachments_updated %}?nocache=1{% endif %}"
         class="dash-frame"
         style="height:calc(100vh - 130px);"
+        allow="fullscreen"
+        allowfullscreen
         title="{{ dashboard.name }}">
 </iframe>
 
@@ -309,6 +350,51 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if can_hide_dashboard %}
+<script>
+document.querySelectorAll('.js-hide-dashboard-form').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        var tpl = form.getAttribute('data-confirm') || '';
+        var name = form.getAttribute('data-name') || '';
+        if (tpl && !window.confirm(tpl.replace('{name}', name))) e.preventDefault();
+    });
+});
+</script>
+{% endif %}
+{% if can_delete_dashboard %}
+<script>
+(function () {
+    function getCsrfToken() {
+        var match = document.cookie.match(/csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+    var deleteConfirmTpl = '{{ ui.dl_delete_confirm|escapejs }}';
+    document.querySelectorAll('.js-dashboard-delete-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var name = form.dataset.dashboardName || '';
+            if (!confirm(deleteConfirmTpl.replace('{name}', name))) return;
+            var btn = form.querySelector('button[type="submit"]');
+            if (btn) btn.disabled = true;
+            fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCsrfToken(),
+                },
+                body: new FormData(form),
+            }).then(function (res) {
+                if (!res.ok) throw new Error('delete failed');
+                window.location.href = '{% url "dashboard_list" %}';
+            }).catch(function () {
+                if (btn) btn.disabled = false;
+                form.submit();
+            });
+        });
+    });
+})();
+</script>
+{% endif %}
 <script src="{% static 'js/attachment_multi_select.js' %}"></script>
 <script>
 (function () {
@@ -359,9 +445,34 @@
 
     var submitForm = document.getElementById('submitDetailForm');
     if (submitForm) {
-        submitForm.addEventListener('submit', function () {
+        submitForm.addEventListener('submit', function (ev) {
+            if (submitForm.dataset.flushing === '1') return;
             var btn = submitForm.querySelector('button[type="submit"]');
             if (btn) btn.disabled = true;
+            var frame = document.getElementById('dashFrame');
+            var flush = null;
+            try {
+                flush = frame && frame.contentWindow && frame.contentWindow.__aiExcelSaveUserEditsNow;
+            } catch (err) {
+                flush = null;
+            }
+            if (typeof flush !== 'function') return;
+            ev.preventDefault();
+            var done = Promise.resolve();
+            try {
+                done = Promise.resolve(flush());
+            } catch (err2) {
+                done = Promise.resolve();
+            }
+            var finish = function () {
+                submitForm.dataset.flushing = '1';
+                if (btn) btn.disabled = false;
+                submitForm.submit();
+            };
+            Promise.race([
+                done.catch(function () {}),
+                new Promise(function (resolve) { setTimeout(resolve, 2500); })
+            ]).then(finish);
         });
     }
 
@@ -402,11 +513,16 @@ function markReviewAttachmentRemove(kind, fieldPrefix) {
     var fileIn = document.getElementById('review-id_' + fieldPrefix);
     if (removeIn) removeIn.value = '1';
     if (panel) {
-        panel.style.display = 'none';
         panel.querySelectorAll('.js-attach-item-remove').forEach(function (cb) {
-            cb.checked = false;
+            cb.checked = true;
             cb.disabled = true;
         });
+        panel.querySelectorAll('.attach-existing__item--own').forEach(function (li) {
+            li.style.display = 'none';
+        });
+        if (!panel.querySelector('.attach-existing__item--inherited')) {
+            panel.style.display = 'none';
+        }
     }
     if (notice) notice.style.display = 'block';
     if (selected) selected.style.display = 'none';

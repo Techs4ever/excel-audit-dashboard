@@ -837,6 +837,15 @@ html[data-theme="dark"] .attach-existing__item {
     border-color: rgba(134, 239, 172, 0.35);
 }
 
+html[data-theme="dark"] .attach-existing__item--inherited {
+    background: rgba(30, 41, 59, 0.85);
+    border-color: rgba(148, 163, 184, 0.45);
+}
+
+html[data-theme="dark"] .attach-existing__inherited {
+    color: #cbd5e1;
+}
+
 html[data-theme="dark"] .attach-existing__name {
     color: var(--text);
 }

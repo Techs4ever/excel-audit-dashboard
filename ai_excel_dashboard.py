@@ -71,6 +71,7 @@ _MAIL_API_MARKER = "window.__AI_EXCEL_MAIL_API__=null;"
 _PLAN_PARSE_API_MARKER = "window.__AI_EXCEL_PLAN_PARSE_URL__=null;"
 _USER_EDITS_SAVE_MARKER = "window.__AI_EXCEL_USER_EDITS_SAVE_URL__=null;"
 _CAN_SAVE_USER_EDITS_MARKER = "window.__AI_EXCEL_CAN_SAVE_USER_EDITS__=false;"
+_DASHBOARD_STATUS_MARKER = 'window.__AI_EXCEL_DASHBOARD_STATUS__="";'
 _USER_EDITS_SAVE_META_MARKER = "__AI_EXCEL_USER_EDITS_SAVE_META__"
 _CAN_SAVE_USER_EDITS_META_MARKER = "__AI_EXCEL_CAN_SAVE_USER_EDITS_META__"
 _SMTP_HELPER_HOST = "127.0.0.1"
@@ -2853,6 +2854,16 @@ def generate_finance_report(
     logo_button_display = "inline-flex" if logo_data_uri else "none"
     logo_src_attr = html.escape(logo_data_uri)
     deck_attach_toggle_html = build_deck_attach_toggle_html(loc, enabled_kinds)
+    audit_attachments_band_html = ""
+    if deck_attach_toggle_html.strip():
+        attachments_heading = html.escape(tr(loc, "audit_attachments_heading"))
+        audit_attachments_band_html = (
+            '<section class="audit-attachments-band" id="audit-attachments-band" '
+            f'aria-labelledby="audit-attachments-heading">'
+            f'<h2 class="audit-attachments-heading" id="audit-attachments-heading">{attachments_heading}</h2>'
+            f'<div class="audit-deck-attach-corner">{deck_attach_toggle_html}</div>'
+            "</section>"
+        )
     html_out = f"""<!DOCTYPE html>
 <html lang="{html_lang}" dir="{html_dir}">
 <head>
@@ -3934,7 +3945,7 @@ def generate_finance_report(
     .audit-deck-attach-corner .audit-obs-aging-toggle:has(input:focus-visible) {{
       box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
     }}
-    /* Audit committee report toggle: larger square blue checkbox only */
+    /* Committee report toggle: larger square blue checkbox only */
     .audit-deck-attach-corner .audit-obs-aging-toggle input#audit-deck-attach-cb,
     .audit-deck-attach-corner .audit-obs-aging-toggle input#audit-high-risk-cb,
     .audit-deck-attach-corner .audit-obs-aging-toggle input#audit-tga-violations-cb,
@@ -4311,6 +4322,26 @@ def generate_finance_report(
       min-width: 0;
       background: #ffffff;
     }}
+    .audit-attachments-band {{
+      width: 100%;
+      margin-top: 0.85rem;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #ce93d8;
+      box-shadow: 0 2px 12px rgba(106, 27, 154, 0.08);
+      background: #ffffff;
+    }}
+    .audit-attachments-heading {{
+      margin: 0;
+      padding: 0.55rem 0.95rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #6a1b9a;
+      background: #f3e5f5;
+      border-bottom: 1px solid #e9d5f5;
+    }}
     .audit-deck-attach-corner {{
       margin-top: auto;
       display: flex;
@@ -4323,6 +4354,12 @@ def generate_finance_report(
       background: #ffffff;
       border-top: 1px solid #e9d5f5;
       box-sizing: border-box;
+    }}
+    .audit-attachments-band .audit-deck-attach-corner {{
+      margin-top: 0;
+      justify-content: flex-start;
+      border-top: none;
+      padding: 0.75rem 0.95rem 0.85rem;
     }}
     .audit-obs-names-bar-row {{
       display: flex;
@@ -5446,6 +5483,12 @@ def generate_finance_report(
     #audit-plan-table.audit-aging-table td:first-child {{
       text-align: left;
       font-weight: 700;
+    }}
+    #audit-plan-table.audit-aging-table td[contenteditable="true"],
+    #audit-obs-tracking-table.audit-aging-table td[contenteditable="true"] {{
+      white-space: pre-wrap;
+      word-break: break-word;
+      vertical-align: top;
     }}
     .audit-plan-colortools {{
       display: flex;
@@ -6680,7 +6723,6 @@ def generate_finance_report(
                   </div>
                 </div>
                 <div class="audit-deck-attach-corner">
-                  {deck_attach_toggle_html}
                   <label class="audit-obs-aging-toggle">
                     <input type="checkbox" id="audit-additional-notes-cb" aria-controls="audit-additional-notes-inline-panel" />
                     <span id="audit-additional-notes-label"></span>
@@ -6694,6 +6736,7 @@ def generate_finance_report(
               </div>
             </div>
           </div>
+          {audit_attachments_band_html}
         </div>
         <p class="muted" id="audit-truncated-note" style="display:none;margin-top:0.75rem;"></p>
       </div>
@@ -7739,27 +7782,49 @@ def generate_finance_report(
           return false;
         }}
       }}
+      let planRowsClearedFlag = false;
+      let userEditsSaveWaiters = [];
+      function planTableIsRendered() {{
+        return !!(planBodyRows && planBodyRows.querySelector("tr"));
+      }}
+      function obsTrackingTableIsRendered() {{
+        return !!(obsTrackingBodyRows && obsTrackingBodyRows.querySelector("tr"));
+      }}
+      function notifyUserEditsSaveWaiters(ok) {{
+        const waiters = userEditsSaveWaiters.splice(0);
+        waiters.forEach(function (fn) {{
+          try {{ fn(ok); }} catch (_w) {{}}
+        }});
+      }}
       function saveUserEditsToServer(opts) {{
         opts = opts || {{}};
         const successMsg = opts.successMsg || (typeof ui !== "undefined" && ui && ui.planSaveSuccess) || "Changes saved";
+        const silent = !!opts.silent;
         if (!canSaveUserEditsToServer()) {{
-          showPlanSaveToast((typeof ui !== "undefined" && ui && ui.planSaveFailed) || "Could not save changes", true);
+          if (!silent) showPlanSaveToast((typeof ui !== "undefined" && ui && ui.planSaveFailed) || "Could not save changes", true);
           return Promise.resolve(false);
         }}
         const url = resolveUserEditsSaveUrl();
         if (userEditsSaveInFlight) {{
           userEditsSaveQueued = true;
-          return Promise.resolve(false);
+          return new Promise(function (resolve) {{
+            userEditsSaveWaiters.push(resolve);
+          }});
         }}
         userEditsSaveInFlight = true;
         try {{ capturePlanDraftRows(); }} catch (_cap) {{}}
         try {{ captureObsTrackingDraftRows(); }} catch (_capOt) {{}}
+        const planCleared = !!planRowsClearedFlag;
+        if (planCleared) planRowsClearedFlag = false;
         const payload = {{
           v: 1,
           planRows: planDraftRows || [],
           planCellBg: planCellBgHex || [],
+          planTouched: planCleared || planTableIsRendered(),
+          planCleared: planCleared,
           reviewsNote: snapshotReviewsForExport(),
           obsTrackingRows: obsTrackingDraftRows || [],
+          obsTrackingTouched: obsTrackingTableIsRendered(),
         }};
         return fetch(url, {{
           method: "POST",
@@ -7769,35 +7834,62 @@ def generate_finance_report(
             "X-Requested-With": "XMLHttpRequest",
           }},
           credentials: "same-origin",
+          keepalive: !!opts.keepalive,
           body: JSON.stringify(payload),
         }})
           .then(function (resp) {{
             if (!resp.ok) {{
-              showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              if (!silent) showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
               return false;
             }}
             return resp.json().then(function (j) {{
               const ok = !!(j && j.ok);
-              if (ok) showPlanSaveToast(successMsg, false);
-              else showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              if (!silent) {{
+                if (ok) showPlanSaveToast(successMsg, false);
+                else showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              }}
               return ok;
             }}).catch(function () {{
-              showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+              if (!silent) showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
               return false;
             }});
           }})
           .catch(function () {{
-            showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
+            if (!silent) showPlanSaveToast(ui.planSaveFailed || "Could not save changes", true);
             return false;
           }})
           .finally(function () {{
             userEditsSaveInFlight = false;
             if (userEditsSaveQueued) {{
               userEditsSaveQueued = false;
-              scheduleSaveUserEditsToServer(120);
+              const queuedOpts = opts || {{}};
+              saveUserEditsToServer(queuedOpts).then(function (ok) {{
+                notifyUserEditsSaveWaiters(ok);
+              }}, function () {{
+                notifyUserEditsSaveWaiters(false);
+              }});
+            }} else {{
+              notifyUserEditsSaveWaiters(true);
             }}
           }});
       }}
+      window.__aiExcelSaveUserEditsNow = function () {{
+        if (userEditsSaveTimer) {{
+          clearTimeout(userEditsSaveTimer);
+          userEditsSaveTimer = null;
+        }}
+        try {{ capturePlanDraftRows(); }} catch (_capNow) {{}}
+        try {{ captureObsTrackingDraftRows(); }} catch (_capNowOt) {{}}
+        try {{
+          writeAuditPersistScript(
+            planDraftRows || [],
+            planCellBgHex || [],
+            snapshotReviewsForExport(),
+            obsTrackingDraftRows || []
+          );
+        }} catch (_wNow) {{}}
+        return saveUserEditsToServer({{ silent: true, keepalive: true }});
+      }};
       function scheduleSaveUserEditsToServer(delayMs) {{
         if (!canSaveUserEditsToServer()) return;
         if (userEditsSaveTimer) clearTimeout(userEditsSaveTimer);
@@ -7824,6 +7916,7 @@ def generate_finance_report(
         window.__aiExcelFlushUserEditsForExport = function () {{
           writeAuditPersistScript([], [], snapshotReviewsForExport(), []);
         }};
+        window.__aiExcelSaveUserEditsNow = function () {{ return Promise.resolve(false); }};
         window.__aiExcelResetAuditChoices = function () {{}};
         return;
       }}
@@ -9531,16 +9624,64 @@ def generate_finance_report(
           try {{ agingClose.focus(); }} catch (_af) {{}}
         }}
       }}
+      function normalizeCellNewlines(value) {{
+        return String(value == null ? "" : value).replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n");
+      }}
+      function readEditableCellText(td) {{
+        if (!td) return "";
+        const parts = [];
+        function walk(node) {{
+          for (let i = 0; i < node.childNodes.length; i++) {{
+            const child = node.childNodes[i];
+            if (child.nodeType === 3) {{
+              parts.push(child.nodeValue || "");
+              continue;
+            }}
+            if (child.nodeType !== 1) continue;
+            const tag = child.tagName;
+            if (tag === "BR") {{
+              parts.push("\\n");
+              continue;
+            }}
+            if (tag === "DIV" || tag === "P") {{
+              if (parts.length && parts[parts.length - 1] !== "\\n") parts.push("\\n");
+              walk(child);
+              if (parts.length && parts[parts.length - 1] !== "\\n") parts.push("\\n");
+              continue;
+            }}
+            walk(child);
+          }}
+        }}
+        walk(td);
+        return normalizeCellNewlines(parts.join("")).replace(/^\\n+|\\n+$/g, "");
+      }}
+      function wireEditableCellEnter(td) {{
+        td.addEventListener("keydown", function (ev) {{
+          if (ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+          ev.preventDefault();
+          try {{
+            if (document.queryCommandSupported && document.queryCommandSupported("insertLineBreak")) {{
+              document.execCommand("insertLineBreak");
+            }} else {{
+              document.execCommand("insertHTML", false, "<br>");
+            }}
+          }} catch (_br) {{}}
+        }});
+      }}
       function capturePlanDraftRows() {{
-        if (!planBodyRows) return;
+        if (!planBodyRows) return planDraftRows;
         const trs = Array.from(planBodyRows.querySelectorAll("tr"));
+        // Table not opened yet — keep hydrated rows (do not wipe on the other panel's save).
+        if (!trs.length) return planDraftRows;
         const out = [];
         trs.forEach(function (tr) {{
           const tds = Array.from(tr.querySelectorAll("td"));
-          if (tds.length < 7) return;
-          out.push(tds.slice(0, 7).map(function (td) {{ return String(td.textContent || "").trim(); }}));
+          const cells = [];
+          for (let c = 0; c < 7; c++) cells.push(tds[c] ? readEditableCellText(tds[c]) : "");
+          out.push(cells);
         }});
         planDraftRows = out;
+        return planDraftRows;
       }}
       function getPlanDraftRows() {{
         return (planDraftRows && planDraftRows.length) ? planDraftRows : null;
@@ -9580,7 +9721,7 @@ def generate_finance_report(
               return disp + "%";
             }}
           }}
-          return s.replace(/\\s+/g, "");
+          return s;
         }}
         const m2 = s.match(/^([\\d.,]+)$/);
         if (m2) {{
@@ -9665,6 +9806,7 @@ def generate_finance_report(
             mapped[i] = String(pos[i]);
           }}
         }}
+        for (let n = 0; n < mapped.length; n++) mapped[n] = normalizeCellNewlines(mapped[n]);
         return formatPlanPctInRow(mapped);
       }}
       function matrixToPlanRecords(matrix) {{
@@ -10057,6 +10199,7 @@ def generate_finance_report(
             td.textContent = String(v);
             td.setAttribute("contenteditable", "true");
             td.spellcheck = false;
+            wireEditableCellEnter(td);
             td.addEventListener("input", persistAuditUserEdits);
             (function (rowIdx, colIdx) {{
               td.addEventListener("click", function () {{
@@ -10085,6 +10228,7 @@ def generate_finance_report(
         planCellBgHex = [];
         ensurePlanCellMatrix(minPlanRows);
         planSelectedCell = null;
+        planRowsClearedFlag = true;
         renderPlanStatusTable();
         try {{ persistAuditUserEdits(); }} catch (_w) {{}}
       }}
@@ -10147,10 +10291,16 @@ def generate_finance_report(
       }}
       function parseObsTrackingNum(v) {{
         if (v == null || v === "") return 0;
-        const s = String(v).replace(/,/g, "").trim();
+        const s = normalizeCellNewlines(v).split("\\n")[0].replace(/,/g, "").trim();
         if (!s) return 0;
         const n = Number(s);
         return Number.isFinite(n) ? n : 0;
+      }}
+      function obsCellDisplay(raw, numeric) {{
+        const s = normalizeCellNewlines(raw == null ? "" : raw).replace(/^\\n+|\\n+$/g, "");
+        if (!s) return "";
+        if (/[\\n]/.test(s) || !/^-?[\\d.,]+$/.test(s)) return s;
+        return fmtObsTrackingNum(numeric);
       }}
       function fmtObsTrackingNum(n) {{
         if (!Number.isFinite(n)) return "0";
@@ -10165,7 +10315,8 @@ def generate_finance_report(
           const period = periods[i] || String(src[0] || "");
           if (i === 0) {{
             const opening = parseObsTrackingNum(src[1] != null ? src[1] : "0");
-            out.push([period, fmtObsTrackingNum(opening), "", "", fmtObsTrackingNum(opening)]);
+            const openingShown = obsCellDisplay(src[1], opening) || "0";
+            out.push([period, openingShown, "", "", fmtObsTrackingNum(opening)]);
             continue;
           }}
           if (i >= 1 && i <= 4) {{
@@ -10173,13 +10324,31 @@ def generate_finance_report(
             const neu = parseObsTrackingNum(src[2]);
             const closed = parseObsTrackingNum(src[3]);
             const ending = opening + neu - closed;
-            const neuRaw = src[2] != null && String(src[2]).trim() !== "" ? fmtObsTrackingNum(neu) : "";
-            const closedRaw = src[3] != null && String(src[3]).trim() !== "" ? fmtObsTrackingNum(closed) : "";
+            const neuRaw = obsCellDisplay(src[2], neu);
+            const closedRaw = obsCellDisplay(src[3], closed);
             out.push([period, fmtObsTrackingNum(opening), neuRaw, closedRaw, fmtObsTrackingNum(ending)]);
             continue;
           }}
-          const opening = parseObsTrackingNum(out[4][4]);
-          out.push([period, fmtObsTrackingNum(opening), "", "", fmtObsTrackingNum(opening)]);
+          // Ending Balance row (workbook row under Q4):
+          // Opening = Opening Balance row opening (C8=C3)
+          // New = SUM of New Observations through Q4 (D8=SUM(D3:D7))
+          // Closed = SUM of Closed Observations through Q4 (E8=SUM(E3:E7))
+          // Ending = Opening + New - Closed (F8=SUM(C8:D8)-E8)
+          const opening = parseObsTrackingNum(out[0][1]);
+          let sumNew = 0;
+          let sumClosed = 0;
+          for (let j = 0; j < 5; j++) {{
+            sumNew += parseObsTrackingNum(out[j][2]);
+            sumClosed += parseObsTrackingNum(out[j][3]);
+          }}
+          const ending = opening + sumNew - sumClosed;
+          out.push([
+            period,
+            fmtObsTrackingNum(opening),
+            fmtObsTrackingNum(sumNew),
+            fmtObsTrackingNum(sumClosed),
+            fmtObsTrackingNum(ending),
+          ]);
         }}
         return out;
       }}
@@ -10200,19 +10369,14 @@ def generate_finance_report(
         }}
         const trs = obsTrackingBodyRows.querySelectorAll("tr");
         // Panel not rendered yet — keep hydrated/in-memory draft (do not wipe on plan save).
-        if (!trs.length) {{
-          if (!Array.isArray(obsTrackingDraftRows) || obsTrackingDraftRows.length < 6) {{
-            ensureObsTrackingDraftRows();
-          }}
-          return obsTrackingDraftRows;
-        }}
+        if (!trs.length) return obsTrackingDraftRows;
         const periods = obsTrackingPeriodLabels();
         const rows = [];
         for (let i = 0; i < 6; i++) {{
           const tr = trs[i];
           const tds = tr ? tr.querySelectorAll("td") : [];
           const get = function (idx) {{
-            return tds[idx] ? String(tds[idx].textContent || "").trim() : "";
+            return tds[idx] ? readEditableCellText(tds[idx]) : "";
           }};
           rows.push([periods[i] || get(0), get(1), get(2), get(3), get(4)]);
         }}
@@ -10397,6 +10561,10 @@ def generate_finance_report(
             if (tds[1]) tds[1].textContent = String(row[1] != null ? row[1] : "0");
             if (tds[4]) tds[4].textContent = String(row[4] != null ? row[4] : "0");
           }}
+          if (r === 5) {{
+            if (tds[2]) tds[2].textContent = String(row[2] != null ? row[2] : "0");
+            if (tds[3]) tds[3].textContent = String(row[3] != null ? row[3] : "0");
+          }}
         }}
       }}
       function renderObsTrackingTable() {{
@@ -10427,6 +10595,7 @@ def generate_finance_report(
             if (editable) {{
               td.setAttribute("contenteditable", "true");
               td.spellcheck = false;
+              wireEditableCellEnter(td);
               td.addEventListener("input", function () {{
                 try {{ syncObsTrackingComputedCells(); }} catch (_re) {{}}
                 try {{ persistAuditUserEdits(); }} catch (_pe) {{}}
@@ -10899,7 +11068,7 @@ def generate_finance_report(
           URL.revokeObjectURL(a.href);
         }});
       }}
-      if (deckAttachLbl) deckAttachLbl.textContent = ui.deckAttachToggleLabel || "تقرير لجنة المراجعة";
+      if (deckAttachLbl) deckAttachLbl.textContent = ui.deckAttachToggleLabel || "تقرير لجنة التدقيق والمخاطر والالتزام";
       if (highRiskLbl) highRiskLbl.textContent = ui.highRiskToggleLabel || "High Risk Observations & Emerging Risks";
       if (tgaViolationsLbl) tgaViolationsLbl.textContent = ui.tgaViolationsToggleLabel || "TGA Violations Report";
       if (missingVehicleLbl) missingVehicleLbl.textContent = ui.missingVehicleToggleLabel || "Missing Vehicle Report";
@@ -10918,7 +11087,7 @@ def generate_finance_report(
       }}
       const DECK_MODE_META = {{
         committee: {{
-          title: function () {{ return ui.deckAttachToggleLabel || "Audit committee report"; }},
+          title: function () {{ return ui.deckAttachToggleLabel || "Audit, Risk, and Compliance Committee Report"; }},
           hint: function () {{ return ui.deckUploadHint || ""; }},
           uploadTitle: function () {{ return ui.deckUploadTitle || "Upload"; }},
           uploadHint: function () {{ return ui.deckUploadHint || ""; }},

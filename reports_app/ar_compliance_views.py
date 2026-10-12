@@ -60,8 +60,17 @@ def _resolve_ar_dashboard(request, pk: int):
     return dashboard, None
 
 
-def _rows_for(dashboard):
-    return load_rows_from_dashboard(dashboard)
+def _rows_for(request, dashboard):
+    from audit_app.subsidiary_access import (
+        filter_rows_by_subsidiary_scope,
+        subsidiary_scope_tokens_for_dashboard,
+    )
+
+    rows = load_rows_from_dashboard(dashboard)
+    return filter_rows_by_subsidiary_scope(
+        rows,
+        subsidiary_scope_tokens_for_dashboard(request.user, dashboard),
+    )
 
 
 def _dashboard_logo_bytes(dashboard) -> bytes | None:
@@ -93,7 +102,7 @@ def ar_api_summary(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(build_summary(rows, selected))
 
@@ -104,7 +113,7 @@ def ar_api_records(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(
         build_record_list(
@@ -134,7 +143,7 @@ def ar_api_aging_summary(request, pk: int):
     if not ref:
         return JsonResponse({"error": "Missing reference date"}, status=400)
     date_source = (request.GET.get("aging_date_source") or "target").lower()
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     out = compute_aging(
         rows,
@@ -157,7 +166,7 @@ def ar_api_export_aging_docx(request, pk: int):
     if not ref:
         return JsonResponse({"error": "Missing reference date"}, status=400)
     date_source = (request.GET.get("aging_date_source") or "target").lower()
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     out = compute_aging(
         rows,
@@ -188,7 +197,7 @@ def ar_api_plan_status_summary(request, pk: int):
     if err:
         return err
     ref = (request.GET.get("reference") or "").strip()
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(compute_plan_status_report(rows, selected, ref))
 
@@ -200,7 +209,7 @@ def ar_api_export_plan_status_docx(request, pk: int):
     if err:
         return err
     ref = (request.GET.get("reference") or "").strip()
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     payload = compute_plan_status_report(rows, selected, ref)
     raw = build_plan_status_docx(payload, logo_bytes=_dashboard_logo_bytes(dashboard))
@@ -218,7 +227,7 @@ def ar_api_program_status_summary(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(
         compute_program_status_report(
@@ -235,7 +244,7 @@ def ar_api_export_program_status_docx(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     payload = compute_program_status_report(
         rows,
@@ -266,7 +275,7 @@ def ar_api_legal_text_details(request, pk: int):
             text = ""
     if not text:
         return JsonResponse({"error": "Not found"}, status=404)
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     rec = legal_details_from_rows(rows, text)
     if not rec:
         return JsonResponse({"error": "Not found"}, status=404)
@@ -297,7 +306,7 @@ def ar_api_send_legal_text_email(request, pk: int):
     text = str(data.get("text") or "").strip()
     to_addr = str(data.get("to") or "").strip()
     if not to_addr:
-        rows = _rows_for(dashboard)
+        rows = _rows_for(request, dashboard)
         rec = legal_details_from_rows(rows, text)
         to_addr = (rec or {}).get("recipient_email") or ""
     if not _valid_obs_email(to_addr):
@@ -332,7 +341,7 @@ def ar_api_export_legal_text_docx(request, pk: int):
         return JsonResponse({"error": "missing_text"}, status=400)
     fields = data.get("fields") or []
     if not fields:
-        rows = _rows_for(dashboard)
+        rows = _rows_for(request, dashboard)
         rec = legal_details_from_rows(rows, text)
         fields = (rec or {}).get("fields") or []
     raw = build_legal_text_docx(text, fields, logo_bytes=_dashboard_logo_bytes(dashboard))
@@ -354,7 +363,7 @@ def ar_api_assessment_forms(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(build_assessment_forms(rows, selected))
 
@@ -365,7 +374,7 @@ def ar_api_export_assessment_forms_docx(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     forms = build_assessment_forms(rows, selected).get("forms") or []
     raw = build_assessment_forms_docx(forms, logo_bytes=_dashboard_logo_bytes(dashboard))
@@ -383,7 +392,7 @@ def ar_api_export_assessment_list_docx(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     records = build_record_list(
         rows,
@@ -406,7 +415,7 @@ def ar_api_export_annual_tracking_docx(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     records = build_record_list(
         rows,
@@ -436,6 +445,15 @@ def ar_api_export_dashboard_html(request, pk: int):
         dashboard_id=dashboard.pk,
         brand_logos=brand_logos,
         default_brand_code=default_brand_code,
+    )
+    from audit_app.subsidiary_access import (
+        apply_subsidiary_scope_to_html,
+        subsidiary_scope_tokens_for_dashboard,
+    )
+
+    html_out = apply_subsidiary_scope_to_html(
+        html_out,
+        subsidiary_scope_tokens_for_dashboard(request.user, dashboard),
     )
     resp = HttpResponse(html_out, content_type="text/html; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="dashboard-export.html"'
@@ -476,6 +494,6 @@ def ar_api_audit_plan_panel(request, pk: int):
     dashboard, err = _resolve_ar_dashboard(request, pk)
     if err:
         return err
-    rows = _rows_for(dashboard)
+    rows = _rows_for(request, dashboard)
     selected = selected_from_params(parse_query_params(request.GET))
     return JsonResponse(build_audit_plan_panel(rows, selected))

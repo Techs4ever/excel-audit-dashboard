@@ -1,5 +1,6 @@
 """Django admin for companies, dashboards, memberships, and users."""
 
+from django import forms as django_forms
 from django.contrib import admin, messages
 from django.contrib.admin.options import IS_POPUP_VAR, TO_FIELD_VAR
 from django.contrib.admin.utils import unquote
@@ -7,7 +8,8 @@ from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group, Permission, User
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.forms.models import BaseInlineFormSet
 from django.db.models import Count, Q, Sum
 from django.http import Http404, HttpResponseRedirect, JsonResponse, QueryDict
 from django.template.response import TemplateResponse
@@ -53,6 +55,7 @@ from .models import (
     CompanyAttachmentSetting,
     CompanyMembership,
     CompanyLogo,
+    Department,
     Dashboard,
     DashboardRejectionLog,
     DashboardStatus,
@@ -206,7 +209,12 @@ class CompanyMembershipInline(admin.StackedInline):
     extra = 1
     autocomplete_fields = ("company",)
     fk_name = "user"
-    fields = ("company", "template_permissions")
+    fields = (
+        "company",
+        "subsidiary_access",
+        "template_permissions",
+        "department_access",
+    )
     verbose_name = _("Company membership")
     verbose_name_plural = _("Company memberships")
 
@@ -325,9 +333,13 @@ class ProtectedUserAdmin(AdminClV2Mixin, BaseUserAdmin):
     def get_cl_v2_form_subtitle(self, request, obj=None, add=False):
         if add:
             return _(
-                "Create a new user account, set permissions, and assign company memberships."
+                "Create a new user account, set permissions, and assign company memberships. "
+                "Department access and visible subsidiaries are granted under each company."
             )
-        return _("Update user profile, permissions, password, and company access.")
+        return _(
+            "Update user profile, permissions, password, and company access. "
+            "Department access and visible subsidiaries are granted under each company."
+        )
 
     def get_cl_v2_search_placeholder(self, request):
         return _("Search username, name, email, or job title…")
@@ -1198,10 +1210,56 @@ class ActiveCompanyFkMixin:
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
+class DepartmentInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        seen: set[str] = set()
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None) or {}
+            if not cleaned or cleaned.get("DELETE"):
+                continue
+            name = " ".join(str(cleaned.get("name") or "").split()).casefold()
+            if not name:
+                continue
+            if name in seen:
+                raise ValidationError(
+                    _("A department with this name already exists for this company.")
+                )
+            seen.add(name)
+
+    def delete_existing(self, obj, commit=True):
+        if not commit:
+            return
+        obj.is_deleted = True
+        obj.deleted_at = timezone.now()
+        obj.save()
+
+
+class DepartmentInline(admin.TabularInline):
+    model = Department
+    formset = DepartmentInlineFormSet
+    template = "admin/audit_app/company/department_inline.html"
+    extra = 1
+    fk_name = "company"
+    fields = ("name", "excel_aliases", "is_active")
+    verbose_name = _("Department")
+    verbose_name_plural = _("Departments")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(is_deleted=False).order_by("name")
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "excel_aliases":
+            kwargs["widget"] = django_forms.Textarea(attrs={"rows": 2, "cols": 28})
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+
 @admin.register(Company)
 class CompanyAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, admin.ModelAdmin):
     soft_delete_deactivate_active_field = "is_active"
     form = CompanyAdminForm
+    inlines = [DepartmentInline]
+    change_form_template = "admin/audit_app/company/change_form.html"
     cl_v2_subtitle = _(
         "Browse and manage all companies (active and inactive) from one place."
     )
@@ -1235,6 +1293,7 @@ class CompanyAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, admin.ModelAdmin):
         (
             _("Attachments (enable or disable per company)"),
             {
+                "classes": ("company-attachments",),
                 "fields": [
                     company_attachment_field_name(code)
                     for code in ATTACHMENT_KIND_CODES
@@ -1345,6 +1404,33 @@ class CompanyAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, admin.ModelAdmin):
             return formfield
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+    def get_inline_instances(self, request, obj=None):
+        kind = request.POST.get("company_kind") if request.method == "POST" else None
+        if kind == COMPANY_KIND_SUBSIDIARY or (obj and obj.is_subsidiary):
+            return []
+        return super().get_inline_instances(request, obj)
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        if object_id:
+            company = self.get_object(request, unquote(object_id))
+            if company and company.is_subsidiary and company.parent_id:
+                parent = company.tenant_root()
+                extra_context["inherited_from"] = parent
+                extra_context["inherited_departments"] = list(
+                    Department.objects.filter(
+                        company=parent,
+                        is_deleted=False,
+                        is_active=True,
+                    ).order_by("name")
+                )
+        return super().changeform_view(
+            request,
+            object_id,
+            form_url,
+            extra_context=extra_context,
+        )
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         form.save_attachment_settings(obj)
@@ -1357,14 +1443,14 @@ class CompanyMembershipAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompany
     )
     form = CompanyMembershipForm
     fieldsets = (
-        (None, {"fields": ("user", "company")}),
+        (None, {"fields": ("user", "company", "subsidiary_access")}),
         (
             _("Dashboard template permissions"),
             {
-                "fields": ("template_permissions",),
+                "fields": ("template_permissions", "department_access"),
                 "description": _(
                     "Each template type has its own upload, view, review, "
-                    "and delete rights for this company."
+                    "delete, and hide rights for this company."
                 ),
             },
         ),
@@ -1375,6 +1461,7 @@ class CompanyMembershipAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompany
         "can_view_own_only",
         "can_review",
         "can_delete_drafts",
+        "can_hide_dashboards",
     )
     list_filter = (
         "company",
@@ -1383,6 +1470,7 @@ class CompanyMembershipAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompany
         "can_view_own_only",
         "can_review",
         "can_delete_drafts",
+        "can_hide_dashboards",
     )
     search_fields = ("user__username", "user__email", "company__code")
     autocomplete_fields = ("user", "company")
@@ -1647,6 +1735,7 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
     )
     search_fields = ("name", "report_id", "description")
     list_filter = ("company", "status", "template_type", "icon", "created_at", "created_by")
+    autocomplete_fields = ("linked_dashboard",)
     readonly_fields = (
         "report_id", "html_file", "source_files", "created_at", "upload_session",
         "published_at", "deleted_at", "deleted_by",
@@ -1654,7 +1743,7 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
     inlines = [DashboardRejectionLogInline]
     fieldsets = (
         (_("Basic information"), {"fields": ("name", "description", "icon", "template_type", "company", "created_by")}),
-        (_("Workflow"), {"fields": ("status", "submitted_at", "published_at", "reviewed_by")}),
+        (_("Workflow"), {"fields": ("status", "is_hidden", "submitted_at", "published_at", "reviewed_by", "linked_dashboard")}),
         (_("Soft delete"), {"fields": ("is_deleted", "deleted_at", "deleted_by")}),
         (_("Report data"), {"fields": ("report_id", "html_file", "source_files", "upload_session")}),
         (_("Dates"), {"fields": ("created_at",)}),
@@ -1719,4 +1808,3 @@ class DashboardAdmin(SoftDeleteAdminMixin, AdminClV2Mixin, ActiveCompanyFkMixin,
                 _("Restored %(count)d dashboard(s).") % {"count": restored},
                 messages.SUCCESS,
             )
-

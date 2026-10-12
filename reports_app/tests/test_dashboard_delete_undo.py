@@ -80,6 +80,37 @@ def test_member_can_soft_delete_own_draft(api_client, btc_company):
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_member_list_and_detail_show_delete_for_own_draft(api_client, btc_company):
+    deleter = make_user("draft_list_deleter")
+    make_membership(deleter, btc_company, can_upload=True, can_delete_drafts=True)
+    draft = Dashboard.objects.create(
+        name="Own Draft Visible",
+        report_id="rid-own-draft-visible",
+        company=btc_company,
+        created_by=deleter,
+        status=DashboardStatus.DRAFT,
+        template_type="CD",
+    )
+    published = Dashboard.objects.create(
+        name="Own Published Hidden",
+        report_id="rid-own-published-hidden",
+        company=btc_company,
+        created_by=deleter,
+        status=DashboardStatus.PUBLISHED,
+        template_type="CD",
+    )
+    login_and_select_company(api_client, "draft_list_deleter", btc_company)
+    list_html = api_client.get("/?template=CD").content.decode()
+    assert f"/dashboards/{draft.pk}/delete/" in list_html
+    assert f"/dashboards/{published.pk}/delete/" not in list_html
+
+    detail_html = api_client.get(f"/dashboards/{draft.pk}/").content.decode()
+    assert f"/dashboards/{draft.pk}/delete/" in detail_html
+    assert "js-dashboard-delete-form" in detail_html
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_superuser_list_shows_delete_for_published(api_client, superuser, btc_company, uploader_user):
     Dashboard.objects.create(
         name="Published Visible",

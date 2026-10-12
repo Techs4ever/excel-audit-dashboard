@@ -45,18 +45,25 @@
     return document.getElementById(id);
   }
 
+  function lockedCount(kind, fieldPrefix, idPrefix) {
+    var input = el(fileInputId(fieldPrefix, idPrefix));
+    var n = parseInt((input && input.getAttribute("data-locked-count")) || "0", 10);
+    return isNaN(n) || n < 0 ? 0 : n;
+  }
+
   function countKeptExisting(kind, fieldPrefix, idPrefix) {
+    var locked = lockedCount(kind, fieldPrefix, idPrefix);
     var panel = el((idPrefix || "") + kind + "ExistingPanel");
     var removeAll = el(
       idPrefix === "review-" ? "review-remove-" + kind : "remove-" + kind
     );
-    if (removeAll && removeAll.value === "1") return 0;
-    if (!panel || panel.style.display === "none") return 0;
+    if (removeAll && removeAll.value === "1") return locked;
+    if (!panel || panel.style.display === "none") return locked;
     var n = 0;
     panel.querySelectorAll(".js-attach-item-remove").forEach(function (cb) {
       if (!cb.checked && !cb.disabled) n += 1;
     });
-    return n;
+    return locked + n;
   }
 
   function maxForInput(input) {

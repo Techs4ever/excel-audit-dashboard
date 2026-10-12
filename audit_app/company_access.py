@@ -120,6 +120,7 @@ def user_membership(user, company: Company | None) -> CompanyMembership | None:
             can_view_own_only=False,
             can_review=True,
             can_delete_drafts=True,
+            can_hide_dashboards=True,
         )
     try:
         return CompanyMembership.objects.prefetch_related("template_accesses").get(
@@ -145,6 +146,7 @@ _PERM_TO_FIELD = {
     "view_own": "can_view_own_only",
     "review": "can_review",
     "delete_draft": "can_delete_drafts",
+    "hide": "can_hide_dashboards",
 }
 
 
@@ -284,7 +286,7 @@ def get_enabled_attachment_kinds(company: Company | None) -> set[str]:
 
 
 DEFAULT_ATTACHMENT_MAX_FILES = 4
-ATTACHMENT_HARD_CEILING = 20
+ATTACHMENT_HARD_CEILING = 100
 
 
 def get_attachment_max_files_map(company: Company | None) -> dict[str, int]:

@@ -1078,8 +1078,8 @@ msgid "Subsidiary"
 msgstr "شركة تابعة"
 
 #: .\audit_app\models.py:18
-msgid "Company wise Audit committee report"
-msgstr "تقرير لجنة التدقيق حسب الشركة"
+msgid "Audit, Risk, and Compliance Committee Report"
+msgstr "تقرير لجنة التدقيق والمخاطر والالتزام"
 
 #: .\audit_app\models.py:19
 msgid "High Risk Observations & Emerging Risks"
@@ -1270,6 +1270,24 @@ msgstr "تعيين المشاهدين"
 
 msgid "Delete drafts"
 msgstr "حذف المسودات"
+
+msgid "Hide dashboards"
+msgstr "إخفاء اللوحات"
+
+msgid "Can hide dashboards"
+msgstr "يمكنه إخفاء لوحات التحكم"
+
+msgid "Hide every dashboard of this template from all users, including the creator. Only members with this permission can show it again."
+msgstr "إخفاء كل لوحات هذا النوع عن جميع المستخدمين بمن فيهم المنشئ. فقط من يملك هذه الصلاحية يستطيع إظهارها مرة أخرى."
+
+msgid "Hidden from everyone"
+msgstr "مخفي عن الجميع"
+
+msgid "When enabled, nobody can see or open this dashboard except users who have the hide permission for its template."
+msgstr "عند التفعيل، لا يستطيع أحد رؤية هذه اللوحة أو فتحها إلا من يملك صلاحية الإخفاء لنوع القالب."
+
+msgid "Each template type has its own upload, view, review, delete, and hide rights for this company."
+msgstr "لكل نوع قالب صلاحيات رفع وعرض ومراجعة وحذف وإخفاء مستقلة داخل هذه الشركة."
 
 msgid "Each template type has its own upload, view, review, and delete rights for this company."
 msgstr "لكل نوع قالب صلاحيات رفع وعرض ومراجعة وحذف مستقلة داخل هذه الشركة."
@@ -2056,6 +2074,114 @@ msgstr ""
 "البيانات.\n"
 "    يمكنك عرضها واستعادتها باستخدام فلتر «%(filter_name)s».\n"
 "    "
+
+msgid "Departments"
+msgstr "الأقسام"
+
+msgid "Department access"
+msgstr "صلاحيات الأقسام"
+
+msgid "Excel department names"
+msgstr "أسماء القسم في ملف إكسل"
+
+msgid "Must match the Department value in the Excel file (spacing and letter case are ignored)."
+msgstr "يجب أن يطابق قيمة عمود القسم في ملف إكسل (يُتجاهل الفراغ وحالة الأحرف)."
+
+msgid "Optional extra names as they appear in the Excel Department column, one per line. The department name itself is always accepted."
+msgstr "أسماء إضافية اختيارية كما تظهر في عمود القسم في ملف إكسل، اسم في كل سطر. اسم القسم نفسه مقبول دائماً."
+
+msgid "A department with this name already exists."
+msgstr "يوجد قسم بهذا الاسم."
+
+msgid "A department with this name already exists for this company."
+msgstr "يوجد قسم بهذا الاسم لهذه الشركة."
+
+msgid "departments"
+msgstr "الأقسام"
+
+msgid "Only departments of this company are listed."
+msgstr "تظهر أقسام هذه الشركة فقط."
+
+msgid "Departments belong to the main company. Subsidiaries inherit them."
+msgstr "الأقسام تتبع الشركة الأم. الشركات الفرعية ترثها."
+
+msgid "These departments belong to this main company. Subsidiary companies use the same list."
+msgstr "هذه الأقسام تتبع هذه الشركة الأم. الشركات الفرعية تستخدم نفس القائمة."
+
+msgid "Subsidiaries use the departments of the parent company %(parent)s."
+msgstr "الشركات الفرعية تستخدم أقسام الشركة الأم %(parent)s."
+
+msgid "The parent company has no departments yet."
+msgstr "لا توجد أقسام لدى الشركة الأم بعد."
+
+msgid "Each department belongs to one company. The same name can exist under another company. Match it to the Department column in Excel, then grant it on that company's membership."
+msgstr "كل قسم يتبع شركة واحدة. يمكن أن يوجد نفس الاسم تحت شركة أخرى. طابق الاسم مع عمود القسم في إكسل، ثم امنحه من عضوية تلك الشركة."
+
+msgid "Create a new user account, set permissions, and assign company memberships. Department access is granted under each company."
+msgstr "أنشئ حساب مستخدم جديد وحدّد الصلاحيات وعضويات الشركات. صلاحية الأقسام تُمنح تحت كل شركة."
+
+msgid "Update user profile, permissions, password, and company access. Department access is granted under each company."
+msgstr "حدّث ملف المستخدم والصلاحيات وكلمة المرور ووصول الشركات. صلاحية الأقسام تُمنح تحت كل شركة."
+
+msgid "Create a new user account, set permissions, and assign company memberships. Department access and visible subsidiaries are granted under each company."
+msgstr "أنشئ حساب مستخدم جديد وحدّد الصلاحيات وعضويات الشركات. صلاحية الأقسام والشركات التابعة الظاهرة تُمنح تحت كل شركة."
+
+msgid "Update user profile, permissions, password, and company access. Department access and visible subsidiaries are granted under each company."
+msgstr "حدّث ملف المستخدم والصلاحيات وكلمة المرور ووصول الشركات. صلاحية الأقسام والشركات التابعة الظاهرة تُمنح تحت كل شركة."
+
+msgid "Visible companies"
+msgstr "الشركات الظاهرة"
+
+msgid "If this company has subsidiaries, check the ones this user may see in its dashboards, including the company itself. You can select more than one. Leave them all unchecked to show every company."
+msgstr "إذا كان لهذه الشركة شركات تابعة، حدّد الشركات التي يراها هذا المستخدم في لوحاتها، بما فيها الشركة نفسها. يمكن اختيار أكثر من شركة. اتركها كلها بدون تحديد لإظهار كل الشركات."
+
+msgid "Subsidiary access"
+msgstr "صلاحية الشركات التابعة"
+
+msgid "Active company id"
+msgstr "معرّف الشركة النشط"
+
+msgid "Each department can be assigned only once."
+msgstr "يمكن تعيين كل قسم مرة واحدة فقط."
+
+msgid "Access permissions"
+msgstr "صلاحيات الوصول"
+
+msgid "Link this user to one or more departments. When they open a dashboard assigned to them, the Department filter lists only these departments."
+msgstr "اربط هذا المستخدم بقسم أو أكثر. عند فتح لوحة تحكم مُعيَّنة له، يعرض فلتر القسم هذه الأقسام فقط."
+
+msgid "Upload, review, and viewer permissions stay on each company membership."
+msgstr "صلاحيات الرفع والمراجعة وتعيين المشاهدين تبقى ضمن عضوية كل شركة."
+
+msgid "Departments are shared by every company. Match the name to the Department column in Excel, then assign departments on the user form."
+msgstr "الأقسام مشتركة بين كل الشركات. طابق الاسم مع عمود القسم في إكسل، ثم عيّن الأقسام من نموذج المستخدم."
+
+msgid "Search department…"
+msgstr "ابحث عن قسم…"
+
+msgid "Add all departments"
+msgstr "إضافة كل الأقسام"
+
+msgid "Remove all departments"
+msgstr "إزالة كل الأقسام"
+
+msgid "Total departments"
+msgstr "إجمالي الأقسام"
+
+msgid "Active departments"
+msgstr "الأقسام النشطة"
+
+msgid "Active name key"
+msgstr "مفتاح الاسم النشط"
+
+msgid "Active department id"
+msgstr "معرّف القسم النشط"
+
+msgid "Create a new user account, set permissions, assign departments, and assign company memberships."
+msgstr "أنشئ حساب مستخدم جديد، واضبط الصلاحيات، وعيّن الأقسام وعضويات الشركات."
+
+msgid "Update user profile, permissions, password, department access, and company access."
+msgstr "حدّث ملف المستخدم والصلاحيات وكلمة المرور وصلاحيات الأقسام ووصول الشركات."
 
 #~ msgid "Password confirmation"
 #~ msgstr "تأكيد كلمة المرور"

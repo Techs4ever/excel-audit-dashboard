@@ -108,6 +108,8 @@ def ui_context(request) -> dict:
         "no_companies_configured": no_companies_configured,
         "can_manage_companies": can_manage_companies,
         "template_nav_sections": template_nav_sections,
+        "nav_dashboard_links": [s for s in template_nav_sections if s.get("can_view")],
+        "nav_upload_links": [s for s in template_nav_sections if s.get("can_upload")],
         "active_nav_template": active_nav_template,
     }
 

@@ -2912,6 +2912,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         function closeCompliancePlanModal() {
             compliancePlanModal.style.display = "none";
             document.getElementById("compliancePlanToggle").checked = false;
+            if (compliancePlanDirty) {
+                void saveComplianceUserEdits({ plan: true });
+            }
         }
 
         function renderCompliancePlanTable() {
@@ -2959,6 +2962,7 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                     const r = Number(td.dataset.r);
                     const c = Number(td.dataset.c);
                     compliancePlanState.rows[r][c] = td.textContent || "";
+                    compliancePlanDirty = true;
                 });
             });
             highlightSelected();
@@ -2975,6 +2979,7 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             compliancePlanState.rows = rows;
             compliancePlanState.styles = {};
             compliancePlanState.selectedCell = null;
+            compliancePlanDirty = true;
             renderCompliancePlanTable();
         }
 
@@ -2998,16 +3003,20 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         document.getElementById("compliancePlanApplyColorBtn").addEventListener("click", () => {
             if (!compliancePlanState.selectedCell) return;
             compliancePlanState.styles[compliancePlanState.selectedCell] = compliancePlanColorInput.value;
+            compliancePlanDirty = true;
             renderCompliancePlanTable();
         });
         document.getElementById("compliancePlanClearColorBtn").addEventListener("click", () => {
             if (!compliancePlanState.selectedCell) return;
             delete compliancePlanState.styles[compliancePlanState.selectedCell];
+            compliancePlanDirty = true;
             renderCompliancePlanTable();
         });
 
+        let compliancePlanDirty = false;
         document.getElementById("compliancePlanSaveHtmlBtn").addEventListener("click", async () => {
-            await downloadInteractiveSnapshot();
+            compliancePlanDirty = true;
+            await saveComplianceUserEdits({ plan: true });
         });
         document.getElementById("compliancePlanModalClose").addEventListener("click", closeCompliancePlanModal);
         compliancePlanModal.addEventListener("click", (event) => {
@@ -3021,6 +3030,828 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
                 closeCompliancePlanModal();
             }
         });
+
+        const QUARTER_LABELS = ["الربع الاول", "الربع الثاني", "الربع الثالث", "الربع الرابع", "الاجمالي"];
+        const QUARTER_HEADERS = ["الربع", "الرصيد", "غير ملتزم (جديد)", "ملتزم جزئي (جديد)", "مغلق", "الاجمالي"];
+        const complianceQuarterlyModal = document.getElementById("complianceQuarterlyModal");
+        const complianceQuarterlyEditor = document.getElementById("complianceQuarterlyEditor");
+        const complianceQuarterlyState = { rows: [] };
+        let complianceQuarterlyDirty = false;
+
+        function blankQuarterlyRows() {
+            return QUARTER_LABELS.map((label) => [label, "", "", "", "", ""]);
+        }
+
+        function quarterNumber(value) {
+            const n = parseFloat(String(value ?? "").replace(/,/g, "").replace(/[^\d.-]/g, ""));
+            return Number.isFinite(n) ? n : 0;
+        }
+
+        function quarterText(value) {
+            const n = quarterNumber(value);
+            if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+            return String(Math.round(n * 100) / 100);
+        }
+
+        function recomputeQuarterlyRows() {
+            const rows = complianceQuarterlyState.rows;
+            while (rows.length < 5) rows.push(["", "", "", "", "", ""]);
+            complianceQuarterlyState.rows = rows.slice(0, 5).map((row) => {
+                const cells = Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : [];
+                while (cells.length < 6) cells.push("");
+                return cells.slice(0, 6);
+            });
+            let previousTotal = quarterNumber(complianceQuarterlyState.rows[0][1]);
+            for (let i = 0; i < 4; i += 1) {
+                const row = complianceQuarterlyState.rows[i];
+                row[0] = QUARTER_LABELS[i];
+                if (i > 0) row[1] = quarterText(previousTotal);
+                const balance = quarterNumber(row[1]);
+                const nonCompliant = quarterNumber(row[2]);
+                const partial = quarterNumber(row[3]);
+                const closed = quarterNumber(row[4]);
+                const total = balance + nonCompliant + partial - closed;
+                row[5] = quarterText(total);
+                previousTotal = total;
+            }
+            const totalRow = complianceQuarterlyState.rows[4];
+            totalRow[0] = QUARTER_LABELS[4];
+            totalRow[1] = complianceQuarterlyState.rows[0][1];
+            let nonCompliantSum = 0;
+            let partialSum = 0;
+            let closedSum = 0;
+            for (let i = 0; i < 4; i += 1) {
+                nonCompliantSum += quarterNumber(complianceQuarterlyState.rows[i][2]);
+                partialSum += quarterNumber(complianceQuarterlyState.rows[i][3]);
+                closedSum += quarterNumber(complianceQuarterlyState.rows[i][4]);
+            }
+            totalRow[2] = quarterText(nonCompliantSum);
+            totalRow[3] = quarterText(partialSum);
+            totalRow[4] = quarterText(closedSum);
+            totalRow[5] = quarterText(
+                quarterNumber(totalRow[1]) + nonCompliantSum + partialSum - closedSum
+            );
+        }
+
+        function quarterlyHasMovement() {
+            return complianceQuarterlyState.rows.some((row) =>
+                [1, 2, 3, 4].some((idx) => {
+                    const cell = String((row || [])[idx] ?? "").trim();
+                    return cell !== "" && cell !== "0";
+                })
+            );
+        }
+
+        function renderQuarterlyTable() {
+            if (!complianceQuarterlyEditor) return;
+            recomputeQuarterlyRows();
+            let thead = "<tr>";
+            QUARTER_HEADERS.forEach((header) => {
+                thead += `<th>${escapeHtml(header)}</th>`;
+            });
+            thead += "</tr>";
+            let tbody = "";
+            complianceQuarterlyState.rows.forEach((row, rIdx) => {
+                tbody += "<tr>";
+                row.forEach((cell, cIdx) => {
+                    const editable = rIdx < 4 && (cIdx === 1 ? rIdx === 0 : cIdx >= 2 && cIdx <= 4);
+                    if (editable) {
+                        tbody += `<td contenteditable="true" data-r="${rIdx}" data-c="${cIdx}">${escapeHtml(String(cell ?? ""))}</td>`;
+                    } else {
+                        tbody += `<td class="quarterly-computed">${escapeHtml(String(cell ?? ""))}</td>`;
+                    }
+                });
+                tbody += "</tr>";
+            });
+            complianceQuarterlyEditor.innerHTML = `<table class="audit-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+            complianceQuarterlyEditor.querySelectorAll("td[contenteditable]").forEach((td) => {
+                td.addEventListener("blur", () => {
+                    const r = Number(td.dataset.r);
+                    const c = Number(td.dataset.c);
+                    complianceQuarterlyState.rows[r][c] = td.textContent || "";
+                    complianceQuarterlyDirty = true;
+                    renderQuarterlyTable();
+                });
+            });
+        }
+
+        function restoreQuarterlyState() {
+            complianceQuarterlyState.rows = blankQuarterlyRows();
+            try {
+                const embedded = document.getElementById("compliance-quarterly-seed");
+                if (!embedded || !embedded.textContent) return;
+                const parsed = JSON.parse(embedded.textContent);
+                const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
+                if (!rows.length) return;
+                complianceQuarterlyState.rows = rows.map((row, idx) => {
+                    const cells = Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : [];
+                    while (cells.length < 6) cells.push("");
+                    cells[0] = QUARTER_LABELS[idx] || cells[0];
+                    return cells.slice(0, 6);
+                });
+            } catch (_e) {}
+            recomputeQuarterlyRows();
+        }
+
+        function headerIndex(headers, needles) {
+            const list = headers.map((header) => String(header || "").replace(/\s+/g, " ").trim());
+            return list.findIndex((header) => needles.every((needle) => header.includes(needle)));
+        }
+
+        function loadQuarterlyWorkbook(workbook) {
+            const sheetName = (workbook.SheetNames || [])[0];
+            if (!sheetName) return;
+            const aoa = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+            let headerRow = -1;
+            for (let i = 0; i < Math.min(aoa.length, 8); i += 1) {
+                const joined = (aoa[i] || []).map((cell) => String(cell || "")).join(" ");
+                if (joined.includes("الرصيد") && joined.includes("الاجمالي")) {
+                    headerRow = i;
+                    break;
+                }
+            }
+            const headers = headerRow >= 0 ? aoa[headerRow] : QUARTER_HEADERS;
+            const balanceIdx = headerIndex(headers, ["الرصيد"]);
+            const nonIdx = headerIndex(headers, ["غير", "ملتزم"]);
+            const partialIdx = headerIndex(headers, ["ملتزم", "جزئي"]);
+            const closedIdx = headerIndex(headers, ["مغلق"]);
+            const dataStart = headerRow >= 0 ? headerRow + 1 : 0;
+            const next = blankQuarterlyRows();
+            let quarter = 0;
+            for (let i = dataStart; i < aoa.length && quarter < 4; i += 1) {
+                const row = aoa[i] || [];
+                const label = String(row[0] ?? "");
+                if (label.includes("الاجمالي") || label.includes("الإجمالي")) continue;
+                const pick = (idx, fallback) => String(row[idx >= 0 ? idx : fallback] ?? "");
+                next[quarter][1] = pick(balanceIdx, 1);
+                next[quarter][2] = pick(nonIdx, 2);
+                next[quarter][3] = pick(partialIdx, 3);
+                next[quarter][4] = pick(closedIdx, 4);
+                quarter += 1;
+            }
+            complianceQuarterlyState.rows = next;
+            complianceQuarterlyDirty = true;
+            renderQuarterlyTable();
+        }
+
+        function closeQuarterlyModal() {
+            if (!complianceQuarterlyModal) return;
+            complianceQuarterlyModal.style.display = "none";
+            const toggle = document.getElementById("complianceQuarterlyToggle");
+            if (toggle) toggle.checked = false;
+            if (complianceQuarterlyDirty) {
+                void saveComplianceUserEdits({ quarter: true });
+            }
+        }
+
+        const quarterlyFile = document.getElementById("complianceQuarterlyFileInput");
+        if (quarterlyFile) {
+            quarterlyFile.addEventListener("change", async () => {
+                const file = quarterlyFile.files && quarterlyFile.files[0];
+                if (!file) return;
+                const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+                loadQuarterlyWorkbook(workbook);
+            });
+        }
+        const quarterlySaveBtn = document.getElementById("complianceQuarterlySaveBtn");
+        if (quarterlySaveBtn) {
+            quarterlySaveBtn.addEventListener("click", async () => {
+                complianceQuarterlyDirty = true;
+                await saveComplianceUserEdits({ quarter: true });
+            });
+        }
+        const quarterlyClose = document.getElementById("complianceQuarterlyModalClose");
+        if (quarterlyClose) quarterlyClose.addEventListener("click", closeQuarterlyModal);
+        if (complianceQuarterlyModal) {
+            complianceQuarterlyModal.addEventListener("click", (event) => {
+                if (event.target === complianceQuarterlyModal) closeQuarterlyModal();
+            });
+        }
+        const quarterlyToggle = document.getElementById("complianceQuarterlyToggle");
+        if (quarterlyToggle) {
+            quarterlyToggle.addEventListener("change", (event) => {
+                if (event.target.checked) {
+                    complianceQuarterlyModal.style.display = "flex";
+                    renderQuarterlyTable();
+                } else {
+                    closeQuarterlyModal();
+                }
+            });
+        }
+
+        const AMBASSADOR_HEADERS = [
+            "رقم هاتف البديل",
+            "البريد الإلكتروني للبديل",
+            "اسم البديل (إن وجد)",
+            "رقم الهاتف",
+            "البريد الإلكتروني",
+            "المسمى الوظيفي",
+            "اسم سفير الالتزام",
+            "الإدارة",
+            "القطاع"
+        ];
+        const complianceAmbassadorsModal = document.getElementById("complianceAmbassadorsModal");
+        const complianceAmbassadorsEditor = document.getElementById("complianceAmbassadorsEditor");
+        const complianceAmbassadorsState = { rows: [] };
+        let complianceAmbassadorsDirty = false;
+
+        function blankAmbassadorRow() {
+            return AMBASSADOR_HEADERS.map(() => "");
+        }
+
+        function blankAmbassadorRows() {
+            return [blankAmbassadorRow()];
+        }
+
+        function ambassadorsEditable() {
+            const status = String(window.__AI_EXCEL_DASHBOARD_STATUS__ || "").trim().toLowerCase();
+            return status === "draft" && complianceCanSaveUserEdits();
+        }
+
+        function compactAmbassadorRows(rows) {
+            const fitted = (rows || []).map((row) => fitAmbassadorRow(row));
+            while (fitted.length > 1 && fitted[fitted.length - 1].every((cell) => cell === "")) {
+                fitted.pop();
+            }
+            if (!fitted.length || fitted.every((row) => row.every((cell) => cell === ""))) {
+                return [blankAmbassadorRow()];
+            }
+            return fitted;
+        }
+
+        function applyAmbassadorsEditChrome() {
+            const editable = ambassadorsEditable();
+            const tools = document.getElementById("complianceAmbassadorsTools");
+            const saveBtn = document.getElementById("complianceAmbassadorsSaveBtn");
+            if (tools) tools.hidden = !editable;
+            if (saveBtn) saveBtn.hidden = !editable;
+        }
+
+        function ambassadorCellText(value) {
+            if (value == null) return "";
+            if (typeof value === "number" && Number.isFinite(value)) {
+                if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+            }
+            return String(value).replace(/\s+/g, " ").trim();
+        }
+
+        function normalizeAmbassadorHeader(value) {
+            return ambassadorCellText(value).replace(/[()（）]/g, "");
+        }
+
+        function fitAmbassadorRow(row) {
+            const cells = Array.isArray(row) ? row.map((cell) => ambassadorCellText(cell)) : [];
+            while (cells.length < AMBASSADOR_HEADERS.length) cells.push("");
+            return cells.slice(0, AMBASSADOR_HEADERS.length);
+        }
+
+        function renderAmbassadorsTable() {
+            if (!complianceAmbassadorsEditor) return;
+            applyAmbassadorsEditChrome();
+            if (!complianceAmbassadorsState.rows.length) {
+                complianceAmbassadorsState.rows = blankAmbassadorRows();
+            }
+            const editable = ambassadorsEditable();
+            let thead = "<tr>";
+            AMBASSADOR_HEADERS.forEach((header) => {
+                thead += `<th>${escapeHtml(header)}</th>`;
+            });
+            if (editable) thead += `<th class="ambassadors-row-actions">إجراء</th>`;
+            thead += "</tr>";
+            let tbody = "";
+            complianceAmbassadorsState.rows.forEach((row, rIdx) => {
+                const cells = fitAmbassadorRow(row);
+                complianceAmbassadorsState.rows[rIdx] = cells;
+                tbody += "<tr>";
+                cells.forEach((cell, cIdx) => {
+                    if (editable) {
+                        tbody += `<td contenteditable="true" data-r="${rIdx}" data-c="${cIdx}">${escapeHtml(cell)}</td>`;
+                    } else {
+                        tbody += `<td>${escapeHtml(cell)}</td>`;
+                    }
+                });
+                if (editable) {
+                    tbody += `<td class="ambassadors-row-actions"><button type="button" class="tool-btn" data-remove-row="${rIdx}">حذف</button></td>`;
+                }
+                tbody += "</tr>";
+            });
+            complianceAmbassadorsEditor.innerHTML = `<table class="audit-table ambassadors-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+            if (!editable) return;
+            complianceAmbassadorsEditor.querySelectorAll("td[contenteditable]").forEach((td) => {
+                td.addEventListener("input", () => {
+                    const r = Number(td.dataset.r);
+                    const c = Number(td.dataset.c);
+                    complianceAmbassadorsState.rows[r][c] = td.textContent || "";
+                    complianceAmbassadorsDirty = true;
+                });
+            });
+            complianceAmbassadorsEditor.querySelectorAll("[data-remove-row]").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const r = Number(btn.getAttribute("data-remove-row"));
+                    complianceAmbassadorsState.rows.splice(r, 1);
+                    if (!complianceAmbassadorsState.rows.length) {
+                        complianceAmbassadorsState.rows = [blankAmbassadorRow()];
+                    }
+                    complianceAmbassadorsDirty = true;
+                    renderAmbassadorsTable();
+                });
+            });
+        }
+
+        function restoreAmbassadorsState() {
+            complianceAmbassadorsState.rows = blankAmbassadorRows();
+            try {
+                const embedded = document.getElementById("compliance-ambassadors-seed");
+                if (!embedded || !embedded.textContent) return;
+                const parsed = JSON.parse(embedded.textContent);
+                const rows = parsed && Array.isArray(parsed.rows) ? parsed.rows : [];
+                if (!rows.length) return;
+                complianceAmbassadorsState.rows = compactAmbassadorRows(rows);
+            } catch (_e) {}
+        }
+
+        function loadAmbassadorsWorkbook(workbook) {
+            const sheetName = (workbook.SheetNames || [])[0];
+            if (!sheetName) return;
+            const aoa = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+            let headerRow = -1;
+            for (let i = 0; i < Math.min(aoa.length, 8); i += 1) {
+                const joined = (aoa[i] || []).map((cell) => ambassadorCellText(cell)).join(" ");
+                if (joined.includes("سفير") || (joined.includes("القطاع") && joined.includes("الإدارة"))) {
+                    headerRow = i;
+                    break;
+                }
+            }
+            const headers = (headerRow >= 0 ? aoa[headerRow] : []).map((cell) => normalizeAmbassadorHeader(cell));
+            const indexByHeader = AMBASSADOR_HEADERS.map((header) =>
+                headers.findIndex((cell) => cell === normalizeAmbassadorHeader(header))
+            );
+            const next = [];
+            const dataStart = headerRow >= 0 ? headerRow + 1 : 0;
+            for (let i = dataStart; i < aoa.length; i += 1) {
+                const source = aoa[i] || [];
+                const cells = AMBASSADOR_HEADERS.map((_header, idx) => {
+                    const sourceIdx = indexByHeader[idx] >= 0 ? indexByHeader[idx] : idx;
+                    return ambassadorCellText(source[sourceIdx]);
+                });
+                if (cells.some((cell) => cell !== "")) next.push(cells);
+            }
+            complianceAmbassadorsState.rows = next.length ? next : blankAmbassadorRows();
+            complianceAmbassadorsDirty = true;
+            renderAmbassadorsTable();
+        }
+
+        function closeAmbassadorsModal() {
+            if (!complianceAmbassadorsModal) return;
+            complianceAmbassadorsModal.style.display = "none";
+            const toggle = document.getElementById("complianceAmbassadorsToggle");
+            if (toggle) toggle.checked = false;
+            if (complianceAmbassadorsDirty && ambassadorsEditable()) {
+                void saveComplianceUserEdits({ ambassadors: true });
+            }
+        }
+
+        const ambassadorsFile = document.getElementById("complianceAmbassadorsFileInput");
+        if (ambassadorsFile) {
+            ambassadorsFile.addEventListener("change", async () => {
+                if (!ambassadorsEditable()) return;
+                const file = ambassadorsFile.files && ambassadorsFile.files[0];
+                if (!file) return;
+                const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+                loadAmbassadorsWorkbook(workbook);
+            });
+        }
+        const ambassadorsAddRow = document.getElementById("complianceAmbassadorsAddRowBtn");
+        if (ambassadorsAddRow) {
+            ambassadorsAddRow.addEventListener("click", () => {
+                if (!ambassadorsEditable()) return;
+                complianceAmbassadorsState.rows.push(blankAmbassadorRow());
+                complianceAmbassadorsDirty = true;
+                renderAmbassadorsTable();
+            });
+        }
+        const ambassadorsSaveBtn = document.getElementById("complianceAmbassadorsSaveBtn");
+        if (ambassadorsSaveBtn) {
+            ambassadorsSaveBtn.addEventListener("click", async () => {
+                if (!ambassadorsEditable()) return;
+                complianceAmbassadorsDirty = true;
+                await saveComplianceUserEdits({ ambassadors: true });
+            });
+        }
+        const ambassadorsClose = document.getElementById("complianceAmbassadorsModalClose");
+        if (ambassadorsClose) ambassadorsClose.addEventListener("click", closeAmbassadorsModal);
+        if (complianceAmbassadorsModal) {
+            complianceAmbassadorsModal.addEventListener("click", (event) => {
+                if (event.target === complianceAmbassadorsModal) closeAmbassadorsModal();
+            });
+        }
+        const ambassadorsToggle = document.getElementById("complianceAmbassadorsToggle");
+        if (ambassadorsToggle) {
+            ambassadorsToggle.addEventListener("change", (event) => {
+                if (event.target.checked) {
+                    complianceAmbassadorsModal.style.display = "flex";
+                    applyAmbassadorsEditChrome();
+                    renderAmbassadorsTable();
+                } else {
+                    closeAmbassadorsModal();
+                }
+            });
+        }
+
+        function complianceCsrfToken() {
+            const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+            return match ? decodeURIComponent(match[1]) : "";
+        }
+
+        const complianceSaveStatusTimers = {};
+
+        function setComplianceSaveStatus(elementId, text) {
+            const node = document.getElementById(elementId);
+            if (!node) return;
+            if (complianceSaveStatusTimers[elementId]) {
+                clearTimeout(complianceSaveStatusTimers[elementId]);
+                complianceSaveStatusTimers[elementId] = null;
+            }
+            node.textContent = text || "";
+            if (!text) return;
+            const holdMs = text === "تم الحفظ" ? 2200 : 3200;
+            complianceSaveStatusTimers[elementId] = setTimeout(() => {
+                if (node.textContent === text) node.textContent = "";
+                complianceSaveStatusTimers[elementId] = null;
+            }, holdMs);
+        }
+
+        function complianceUserEditsSaveUrl() {
+            const raw = window.__AI_EXCEL_USER_EDITS_SAVE_URL__;
+            if (typeof raw === "string") {
+                const url = raw.trim();
+                if (url && url !== "null") return url;
+            }
+            const path = String(window.location.pathname || "");
+            const match = path.match(/\/dashboards\/(\d+)\//);
+            if (!match) return "";
+            const base = path.replace(/\/serve\/?.*$/, "");
+            if (!base || base === path) return "";
+            return `${base.replace(/\/+$/, "")}/api/user-edits/`;
+        }
+
+        function complianceCanSaveUserEdits() {
+            const flag = window.__AI_EXCEL_CAN_SAVE_USER_EDITS__;
+            if (flag === false || flag === "false") return false;
+            return !!complianceUserEditsSaveUrl();
+        }
+
+        let complianceSaveChain = Promise.resolve();
+
+        function saveComplianceUserEdits(flags, options) {
+            const opts = options || {};
+            const planTouched = !!(flags && flags.plan);
+            const quarterTouched = !!(flags && flags.quarter);
+            const ambassadorsTouched = !!(flags && flags.ambassadors);
+            const statusId = ambassadorsTouched && !planTouched && !quarterTouched
+                ? "complianceAmbassadorsSaveStatus"
+                : planTouched
+                    ? "compliancePlanSaveStatus"
+                    : "complianceQuarterlySaveStatus";
+            const url = complianceUserEditsSaveUrl();
+            const canSave = complianceCanSaveUserEdits();
+            if (!canSave) {
+                if (!opts.silent) setComplianceSaveStatus(statusId, "الحفظ غير متاح");
+                return Promise.resolve(false);
+            }
+            const body = {
+                v: 1,
+                planRows: [],
+                planCellBg: [],
+                reviewsNote: "",
+                obsTrackingRows: [],
+                planTouched: false,
+                obsTrackingTouched: false,
+                reviewsTouched: false,
+                compliancePlan: {
+                    sheetName: compliancePlanState.sheetName,
+                    headers: compliancePlanState.headers,
+                    rows: compliancePlanState.rows,
+                    styles: compliancePlanState.styles
+                },
+                compliancePlanTouched: planTouched,
+                complianceQuarterly: { rows: complianceQuarterlyState.rows },
+                complianceQuarterlyTouched: quarterTouched,
+                complianceAmbassadors: { rows: complianceAmbassadorsState.rows },
+                complianceAmbassadorsTouched: ambassadorsTouched
+            };
+            const run = () => fetch(url, {
+                method: "POST",
+                credentials: "same-origin",
+                keepalive: !!opts.keepalive,
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": complianceCsrfToken()
+                },
+                body: JSON.stringify(body)
+            }).then((response) => {
+                if (!response.ok) throw new Error("save failed");
+                if (planTouched) compliancePlanDirty = false;
+                if (quarterTouched) complianceQuarterlyDirty = false;
+                if (ambassadorsTouched) complianceAmbassadorsDirty = false;
+                if (!opts.silent) setComplianceSaveStatus(statusId, "تم الحفظ");
+                return true;
+            }).catch(() => {
+                if (!opts.silent) setComplianceSaveStatus(statusId, "تعذر الحفظ");
+                return false;
+            });
+            complianceSaveChain = complianceSaveChain.then(run, run);
+            return complianceSaveChain;
+        }
+
+        window.__aiExcelSaveUserEditsNow = function () {
+            const plan = compliancePlanDirty;
+            const quarter = complianceQuarterlyDirty;
+            const ambassadors = complianceAmbassadorsDirty;
+            if (!plan && !quarter && !ambassadors) return Promise.resolve(true);
+            return saveComplianceUserEdits(
+                { plan: plan, quarter: quarter, ambassadors: ambassadors },
+                { silent: true, keepalive: true }
+            );
+        };
+
+        function complianceBase64Bytes(data) {
+            const binary = atob(data || "");
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+            return bytes;
+        }
+
+        function initComplianceAttachments() {
+            const band = document.getElementById("complianceAttachmentsBand");
+            const hostToggles = document.getElementById("complianceAttachmentToggles");
+            const modal = document.getElementById("complianceAttachmentModal");
+            const title = document.getElementById("complianceAttachmentTitle");
+            const fileNameEl = document.getElementById("complianceAttachmentFileName");
+            const viewerHost = document.getElementById("complianceAttachmentHost");
+            const nav = document.getElementById("complianceAttachmentNav");
+            const status = document.getElementById("complianceAttachmentSlideStatus");
+            const pick = document.getElementById("complianceAttachmentPick");
+            const pickBackdrop = document.getElementById("complianceAttachmentPickBackdrop");
+            const pickReport = document.getElementById("complianceAttachmentPickReport");
+            const pickList = document.getElementById("complianceAttachmentPickList");
+            const missing = document.getElementById("complianceAttachmentMissing");
+            const missingBackdrop = document.getElementById("complianceAttachmentMissingBackdrop");
+            const missingReport = document.getElementById("complianceAttachmentMissingReport");
+            const seed = document.getElementById("compliance-attachments");
+            if (!hostToggles || !modal || !pick || !seed) return;
+            let pack = { kinds: [] };
+            try {
+                pack = JSON.parse(seed.textContent || "{}") || { kinds: [] };
+            } catch (_e) {
+                pack = { kinds: [] };
+            }
+            const kinds = Array.isArray(pack.kinds) ? pack.kinds : [];
+            let activeKind = null;
+            let activeFile = 0;
+            let pptxViewer = null;
+            let pdfUrl = "";
+
+            function filesOf(kind) {
+                return (kind && Array.isArray(kind.files)) ? kind.files.filter((file) => file && file.data_base64) : [];
+            }
+
+            function kindByCode(code) {
+                return kinds.find((item) => item.kind === code) || null;
+            }
+
+            function setLayer(node, backdrop, open) {
+                if (node) node.hidden = !open;
+                if (backdrop) backdrop.hidden = !open;
+            }
+
+            function revokePdf() {
+                if (pdfUrl) {
+                    URL.revokeObjectURL(pdfUrl);
+                    pdfUrl = "";
+                }
+            }
+
+            function clearViewer() {
+                if (pptxViewer && pptxViewer.destroy) {
+                    try { pptxViewer.destroy(); } catch (_e) {}
+                }
+                pptxViewer = null;
+                revokePdf();
+                if (viewerHost) viewerHost.innerHTML = "";
+                if (nav) nav.hidden = true;
+            }
+
+            function uncheckAll() {
+                hostToggles.querySelectorAll("input[type=checkbox]").forEach((box) => {
+                    box.checked = false;
+                });
+            }
+
+            function closePicker() {
+                setLayer(pick, pickBackdrop, false);
+                if (pickList) pickList.innerHTML = "";
+            }
+
+            function closeMissing() {
+                setLayer(missing, missingBackdrop, false);
+            }
+
+            function exitAttachmentFullscreen() {
+                const active = document.fullscreenElement || document.webkitFullscreenElement;
+                if (active && (active === modal || modal.contains(active))) {
+                    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+                    if (exit) {
+                        try { exit.call(document); } catch (_e) {}
+                    }
+                }
+            }
+
+            function enterAttachmentFullscreen() {
+                if (modal.parentElement !== document.body) document.body.appendChild(modal);
+                modal.hidden = false;
+                const request = modal.requestFullscreen || modal.webkitRequestFullscreen;
+                if (!request) return;
+                try {
+                    const pending = request.call(modal);
+                    if (pending && pending.catch) pending.catch(() => {});
+                } catch (_e) {}
+            }
+
+            function closeViewer() {
+                exitAttachmentFullscreen();
+                modal.hidden = true;
+                clearViewer();
+                if (fileNameEl) fileNameEl.textContent = "";
+            }
+
+            function closeAttachment() {
+                closePicker();
+                closeMissing();
+                closeViewer();
+                uncheckAll();
+                activeKind = null;
+            }
+
+            async function importPptxRenderer() {
+                const urls = [
+                    "https://esm.sh/@aiden0z/pptx-renderer@1.0.2",
+                    "https://cdn.jsdelivr.net/npm/@aiden0z/pptx-renderer@1.0.2/+esm"
+                ];
+                let lastErr = null;
+                for (let i = 0; i < urls.length; i += 1) {
+                    try {
+                        return await import(urls[i]);
+                    } catch (err) {
+                        lastErr = err;
+                    }
+                }
+                throw lastErr || new Error("pptx-renderer import failed");
+            }
+
+            function syncSlides() {
+                if (!pptxViewer || !status) return;
+                const index = Number(pptxViewer.currentSlideIndex || 0);
+                const total = Number(pptxViewer.slideCount || 0);
+                status.textContent = total ? `${index + 1} / ${total}` : "";
+            }
+
+            async function showFile() {
+                const kind = kindByCode(activeKind);
+                const file = filesOf(kind)[activeFile];
+                clearViewer();
+                if (!file) {
+                    viewerHost.innerHTML = `<div class="empty-hint">لا يوجد ملف.</div>`;
+                    return;
+                }
+                if (title) title.textContent = (kind && kind.label) || "مرفق";
+                if (fileNameEl) fileNameEl.textContent = file.file_name || "";
+                const binary = complianceBase64Bytes(file.data_base64);
+                const mime = String(file.mime || "");
+                const name = String(file.file_name || "").toLowerCase();
+                enterAttachmentFullscreen();
+                const slideWidth = Math.max(
+                    window.screen.width || 0,
+                    window.innerWidth || 0,
+                    viewerHost.clientWidth || 0,
+                    1280
+                );
+                if (mime.indexOf("pdf") >= 0 || name.endsWith(".pdf")) {
+                    pdfUrl = URL.createObjectURL(new Blob([binary], { type: "application/pdf" }));
+                    viewerHost.innerHTML = `<iframe class="compliance-attachment-frame" src="${pdfUrl}#toolbar=1&navpanes=0" title="pdf"></iframe>`;
+                    return;
+                }
+                if (nav) nav.hidden = false;
+                const canvas = document.createElement("div");
+                canvas.className = "compliance-pptx-canvas";
+                viewerHost.appendChild(canvas);
+                try {
+                    const mod = await importPptxRenderer();
+                    const Viewer = mod.PptxViewer;
+                    pptxViewer = await Viewer.open(binary.buffer, canvas, {
+                        renderMode: "slide",
+                        fitMode: "contain",
+                        width: slideWidth
+                    });
+                    syncSlides();
+                } catch (_err) {
+                    viewerHost.innerHTML = `<div class="empty-hint">تعذر عرض الملف. يمكنك تنزيله.</div>`;
+                    if (nav) nav.hidden = true;
+                }
+            }
+
+            function openFile(kindCode, index) {
+                closePicker();
+                closeMissing();
+                activeKind = kindCode;
+                activeFile = index;
+                hostToggles.querySelectorAll("input[type=checkbox]").forEach((box) => {
+                    box.checked = box.dataset.kind === kindCode;
+                });
+                enterAttachmentFullscreen();
+                void showFile();
+            }
+
+            function openPicker(kindCode) {
+                const kind = kindByCode(kindCode);
+                const files = filesOf(kind);
+                closeViewer();
+                closeMissing();
+                uncheckAll();
+                activeKind = kindCode;
+                if (!files.length) {
+                    if (missingReport) missingReport.textContent = (kind && kind.label) || "مرفق";
+                    setLayer(missing, missingBackdrop, true);
+                    return;
+                }
+                if (pickReport) pickReport.textContent = (kind && kind.label) || "مرفق";
+                if (pickList) {
+                    pickList.innerHTML = "";
+                    files.forEach((file, index) => {
+                        const li = document.createElement("li");
+                        const button = document.createElement("button");
+                        button.type = "button";
+                        button.className = "compliance-attach-pick-item";
+                        button.textContent = file.file_name || `مرفق ${index + 1}`;
+                        button.addEventListener("click", () => openFile(kindCode, index));
+                        li.appendChild(button);
+                        pickList.appendChild(li);
+                    });
+                }
+                setLayer(pick, pickBackdrop, true);
+            }
+
+            if (band && kinds.some((kind) => filesOf(kind).length)) band.hidden = false;
+            kinds.forEach((kind) => {
+                if (!filesOf(kind).length) return;
+                const label = document.createElement("label");
+                label.className = "inline-check audit";
+                const box = document.createElement("input");
+                box.type = "checkbox";
+                box.dataset.kind = kind.kind;
+                box.addEventListener("change", () => {
+                    if (box.checked) openPicker(kind.kind);
+                    else closeAttachment();
+                });
+                label.appendChild(box);
+                label.appendChild(document.createTextNode(` ${kind.label || kind.kind}`));
+                hostToggles.appendChild(label);
+            });
+
+            document.getElementById("complianceAttachmentModalClose").addEventListener("click", closeAttachment);
+            document.getElementById("complianceAttachmentBack").addEventListener("click", () => {
+                if (activeKind) openPicker(activeKind);
+                else closeAttachment();
+            });
+            document.getElementById("complianceAttachmentPickCancel").addEventListener("click", closeAttachment);
+            if (pickBackdrop) pickBackdrop.addEventListener("click", closeAttachment);
+            document.getElementById("complianceAttachmentMissingOk").addEventListener("click", closeAttachment);
+            if (missingBackdrop) missingBackdrop.addEventListener("click", closeAttachment);
+            document.getElementById("complianceAttachmentPrev").addEventListener("click", () => {
+                if (!pptxViewer) return;
+                const index = Number(pptxViewer.currentSlideIndex || 0);
+                if (index > 0) void pptxViewer.goToSlide(index - 1).then(syncSlides);
+            });
+            document.getElementById("complianceAttachmentNext").addEventListener("click", () => {
+                if (!pptxViewer) return;
+                const index = Number(pptxViewer.currentSlideIndex || 0);
+                const total = Number(pptxViewer.slideCount || 0);
+                if (index < total - 1) void pptxViewer.goToSlide(index + 1).then(syncSlides);
+            });
+            document.getElementById("complianceAttachmentDownloadBtn").addEventListener("click", () => {
+                const file = filesOf(kindByCode(activeKind))[activeFile];
+                if (!file) return;
+                const binary = complianceBase64Bytes(file.data_base64);
+                const url = URL.createObjectURL(new Blob([binary], { type: file.mime || "application/octet-stream" }));
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = file.file_name || "attachment";
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+            });
+        }
         const finalStatusToggle = document.getElementById("finalStatusToggle");
         if (finalStatusToggle) {
             finalStatusToggle.addEventListener("change", (event) => {
@@ -3072,6 +3903,10 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             });
         }
         restoreCompliancePlanState();
+        restoreQuarterlyState();
+        restoreAmbassadorsState();
+        applyAmbassadorsEditChrome();
+        initComplianceAttachments();
         try {
             localStorage.removeItem("compliancePlanEditor.v1");
         } catch (_e) {}
@@ -5264,3 +6099,5 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
         initUploadedFilePreview();
         initFileColumnStudio();
         fetchSummary();
+  
+  
