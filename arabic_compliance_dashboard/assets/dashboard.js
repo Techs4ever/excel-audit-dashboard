@@ -345,9 +345,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             const isOpenStatusForAging = (statusText) =>
                 isWithinCorrectionStatus(statusText) || isPastCorrectionStatus(statusText);
             const agingRowRiskText = (row) => {
-                const residual = rowValue(row, COL_RESIDUAL);
-                if (residual !== BLANK) return residual;
-                return rowValue(row, COL_INHERENT);
+                const inherent = rowValue(row, COL_INHERENT);
+                if (inherent !== BLANK) return inherent;
+                return rowValue(row, COL_RESIDUAL);
             };
             const agingRiskKey = (residualNorm) => {
                 if (residualNorm === BLANK) return null;
@@ -5068,7 +5068,9 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             if (barEl) {
                 barEl.className = `program-overall-bar is-${escapeHtml(overall.id || "green")}`;
                 barEl.innerHTML = `
-                    <div class="program-overall-label">الحالة العامة لبرنامج الالتزام:</div>
+                    <div class="program-overall-label">
+                        <span class="program-overall-label-text">الحالة العامة لبرنامج الالتزام بناءً على الإدارات التي تم مراجعتها حتى تاريخه والمذكورة أدناه</span>
+                    </div>
                     <div class="program-overall-select is-${escapeHtml(overall.id || "green")}">
                         <label class="program-overall-select-label" for="programOverallSelect">اختيار الحالة</label>
                         <div class="program-overall-select-wrap">
@@ -5145,7 +5147,7 @@ const __arCfg = window.__AR_DASHBOARD__ || {};
             const overall = programOverallLevel(data);
             const barHtml = `<table style="width:100%;border-collapse:collapse;margin:12px 0 16px;">
                 <tr>
-                    <td style="background:#2a6499;color:#fff;font-weight:800;text-align:center;padding:10px;">الحالة العامة لبرنامج الالتزام:</td>
+                    <td style="background:#1f4e79;color:#fff;font-weight:700;text-align:right;padding:12px 16px;line-height:1.65;font-size:12pt;">الحالة العامة لبرنامج الالتزام بناءً على الإدارات التي تم مراجعتها حتى تاريخه والمذكورة أدناه</td>
                     <td class="is-${escapeHtml(overall.id || "green")}" style="text-align:center;font-weight:800;padding:10px;">${escapeHtml(overall.label || "")}</td>
                 </tr>
             </table>`;

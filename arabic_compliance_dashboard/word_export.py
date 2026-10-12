@@ -995,12 +995,12 @@ def build_program_status_docx(
     _set_table_rtl(bar)
     _write_cell(
         bar.rows[0].cells[0],
-        "الحالة العامة لبرنامج الالتزام:",
-        fill="2A6499",
+        "الحالة العامة لبرنامج الالتزام بناءً على الإدارات التي تم مراجعتها حتى تاريخه والمذكورة أدناه",
+        fill="1F4E79",
         bold=True,
         color="FFFFFF",
-        size=12,
-        align=WD_ALIGN_PARAGRAPH.CENTER,
+        size=11,
+        align=WD_ALIGN_PARAGRAPH.RIGHT,
     )
     _write_cell(
         bar.rows[0].cells[1],

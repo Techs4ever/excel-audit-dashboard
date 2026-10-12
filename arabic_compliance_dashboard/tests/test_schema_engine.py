@@ -390,6 +390,30 @@ def test_aging_record_list_filters_to_cell():
     assert out["records"][0]["legal_text"] == "نص أ"
 
 
+def test_compute_aging_prefers_inherent_over_residual():
+    from arabic_compliance_dashboard.engine import (
+        COL_INHERENT,
+        COL_RESIDUAL,
+        COL_STATUS,
+        COL_TARGET,
+        PARAM_TO_COL,
+    )
+
+    rows = [
+        {
+            COL_STATUS: "مفتوح ( ضمن تاريخ التصحيح)",
+            COL_INHERENT: "مرتفع",
+            COL_RESIDUAL: "منخفض",
+            COL_TARGET: "2026-12-01",
+        }
+    ]
+    selected = {col: [] for col in PARAM_TO_COL.values()}
+    out = compute_aging(rows, selected, "2026-06-01", "target")
+    not_due = next(r for r in out["time_rows"] if r["id"] == "not_due")
+    assert not_due["cells"]["high"] == 1
+    assert not_due["cells"]["low"] == 0
+
+
 def test_compute_aging_uses_inherent_risk_when_residual_missing():
     from arabic_compliance_dashboard.engine import (
         COL_INHERENT,
@@ -997,6 +1021,7 @@ def test_aging_matrix_docx_embeds_logo():
 def test_plan_status_report_groups_department_schedule_and_risk():
     from arabic_compliance_dashboard.engine import (
         COL_DEPT,
+        COL_INHERENT,
         COL_LEGAL,
         COL_RESIDUAL,
         COL_STATUS,
@@ -1010,28 +1035,31 @@ def test_plan_status_report_groups_department_schedule_and_risk():
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص أ",
             COL_STATUS: "مفتوحة ضمن الجدول الزمني",
-            COL_RESIDUAL: "مرتفع",
+            COL_INHERENT: "مرتفع",
+            COL_RESIDUAL: "منخفض",
             COL_TARGET: "2026-12-01",
         },
         {
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص ب",
             COL_STATUS: "مفتوحة تجاوزت الجدول الزمني",
-            COL_RESIDUAL: "متوسط",
+            COL_INHERENT: "متوسط",
+            COL_RESIDUAL: "منخفض",
             COL_TARGET: "2026-01-01",
         },
         {
             COL_DEPT: "إدارة تكنولوجيا المعلومات",
             COL_LEGAL: "نص ج",
             COL_STATUS: "مغلق",
-            COL_RESIDUAL: "منخفض",
+            COL_INHERENT: "منخفض",
             COL_TARGET: "2026-01-01",
         },
         {
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص أ",
             COL_STATUS: "مفتوحة ضمن الجدول الزمني",
-            COL_RESIDUAL: "مرتفع جدا",
+            COL_INHERENT: "مرتفع جدا",
+            COL_RESIDUAL: "منخفض",
             COL_TARGET: "2026-11-01",
         },
     ]
@@ -1055,8 +1083,8 @@ def test_plan_status_docx_contains_headers():
 
     from arabic_compliance_dashboard.engine import (
         COL_DEPT,
+        COL_INHERENT,
         COL_LEGAL,
-        COL_RESIDUAL,
         COL_STATUS,
         PARAM_TO_COL,
         compute_plan_status_report,
@@ -1068,7 +1096,7 @@ def test_plan_status_docx_contains_headers():
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص",
             COL_STATUS: "مفتوحة ضمن الجدول الزمني",
-            COL_RESIDUAL: "منخفض",
+            COL_INHERENT: "منخفض",
         }
     ]
     selected = {col: [] for col in PARAM_TO_COL.values()}
@@ -1186,6 +1214,7 @@ def test_legal_text_docx_embeds_logo():
 def test_plan_status_report_groups_department_schedule_and_risk():
     from arabic_compliance_dashboard.engine import (
         COL_DEPT,
+        COL_INHERENT,
         COL_LEGAL,
         COL_RESIDUAL,
         COL_STATUS,
@@ -1199,28 +1228,31 @@ def test_plan_status_report_groups_department_schedule_and_risk():
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص أ",
             COL_STATUS: "مفتوحة ضمن الجدول الزمني",
-            COL_RESIDUAL: "مرتفع",
+            COL_INHERENT: "مرتفع",
+            COL_RESIDUAL: "منخفض",
             COL_TARGET: "2026-12-01",
         },
         {
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص ب",
             COL_STATUS: "مفتوحة تجاوزت الجدول الزمني",
-            COL_RESIDUAL: "متوسط",
+            COL_INHERENT: "متوسط",
+            COL_RESIDUAL: "منخفض",
             COL_TARGET: "2026-01-01",
         },
         {
             COL_DEPT: "إدارة تكنولوجيا المعلومات",
             COL_LEGAL: "نص ج",
             COL_STATUS: "مغلق",
-            COL_RESIDUAL: "منخفض",
+            COL_INHERENT: "منخفض",
             COL_TARGET: "2026-01-01",
         },
         {
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص أ",
             COL_STATUS: "مفتوحة ضمن الجدول الزمني",
-            COL_RESIDUAL: "مرتفع جدا",
+            COL_INHERENT: "مرتفع جدا",
+            COL_RESIDUAL: "منخفض",
             COL_TARGET: "2026-11-01",
         },
     ]
@@ -1244,8 +1276,8 @@ def test_plan_status_docx_contains_headers():
 
     from arabic_compliance_dashboard.engine import (
         COL_DEPT,
+        COL_INHERENT,
         COL_LEGAL,
-        COL_RESIDUAL,
         COL_STATUS,
         PARAM_TO_COL,
         compute_plan_status_report,
@@ -1257,7 +1289,7 @@ def test_plan_status_docx_contains_headers():
             COL_DEPT: "إدارة التأمين",
             COL_LEGAL: "نص",
             COL_STATUS: "مفتوحة ضمن الجدول الزمني",
-            COL_RESIDUAL: "منخفض",
+            COL_INHERENT: "منخفض",
         }
     ]
     selected = {col: [] for col in PARAM_TO_COL.values()}

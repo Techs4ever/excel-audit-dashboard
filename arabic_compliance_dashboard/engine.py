@@ -871,10 +871,10 @@ def compute_program_status_report(
 
 
 def aging_row_risk_text(row: dict[str, str]) -> str:
-    residual = row_value(row, COL_RESIDUAL)
-    if residual != BLANK:
-        return residual
-    return row_value(row, COL_INHERENT)
+    inherent = row_value(row, COL_INHERENT)
+    if inherent != BLANK:
+        return inherent
+    return row_value(row, COL_RESIDUAL)
 
 
 def aging_risk_key(residual_norm: str) -> str | None:
